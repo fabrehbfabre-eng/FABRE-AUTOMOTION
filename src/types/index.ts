@@ -165,6 +165,7 @@ export interface KnowledgeItem {
   tags: string[];
   isActive: boolean;
   priority: number; // 1 (highest) to 5
+  isOfficial?: boolean; // True when registered officially; false when demo placeholder
   createdAt: string;
   updatedAt: string;
 }

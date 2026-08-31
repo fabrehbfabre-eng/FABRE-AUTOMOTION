@@ -1,5 +1,6 @@
 /**
  * FABRE AUTOMATION - Create/Edit Knowledge Item Modal
+ * Release 2: Supabase Persistence Foundation
  */
 
 import React, { useState } from 'react';
@@ -22,7 +23,7 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
   const [title, setTitle] = useState(initialData?.title || '');
   const [category, setCategory] = useState<KnowledgeCategory>(initialData?.category || 'product');
   const [content, setContent] = useState(initialData?.content || '');
-  const [tags, setTags] = useState(initialData?.tags.join(', ') || 'mentoria, casal-fabre');
+  const [tags, setTags] = useState(initialData?.tags.join(', ') || 'atendimento, informacoes');
   const [priority, setPriority] = useState(initialData?.priority || 1);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -41,6 +42,7 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
       tags: tagsArray,
       isActive: true,
       priority: Number(priority),
+      isOfficial: true,
     });
 
     onClose();
@@ -51,7 +53,7 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title={initialData ? 'Editar Item de Conhecimento' : 'Novo Item na Base de Conhecimento'}
-      subtitle="Cadastre informações que a IA consultará para responder aos seguidores com segurança"
+      subtitle="Cadastre informações oficiais que a IA e a equipe consultarão para responder com segurança"
       maxWidth="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -63,7 +65,7 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
           <input
             type="text"
             required
-            placeholder="Ex: Tabela de Preços da Mentoria 2026"
+            placeholder="Ex: Diretrizes Oficiais de Atendimento"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-cyan-500/50"
@@ -81,14 +83,14 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
               onChange={(e) => setCategory(e.target.value as KnowledgeCategory)}
               className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 focus:outline-none focus:border-cyan-500/50"
             >
-              <option value="product">Produtos / Mentoria</option>
-              <option value="price">Tabela de Preços</option>
+              <option value="product">Produtos / Treinamentos</option>
+              <option value="price">Valores e Formas de Pagamento</option>
               <option value="faq">Perguntas Frequentes (FAQ)</option>
-              <option value="profile">Sobre o Casal Fabre</option>
-              <option value="rules">Regras de Atendimento</option>
+              <option value="profile">Institucional / Apresentação</option>
+              <option value="rules">Regras de Atendimento / Transbordo</option>
               <option value="tone">Tom de Comunicação</option>
-              <option value="commercial">Informações Comerciais</option>
-              <option value="link">Links Oficiais</option>
+              <option value="commercial">Orientações Comerciais</option>
+              <option value="link">Links Oficiais Validados</option>
             </select>
           </div>
 
@@ -111,12 +113,12 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
         {/* Content */}
         <div className="space-y-1.5">
           <label className="text-xs font-semibold text-neutral-300">
-            Conteúdo Detalhado (Instrução para a IA)
+            Conteúdo Detalhado (Instrução para a IA e Operadores)
           </label>
           <textarea
             rows={5}
             required
-            placeholder="Descreva detalhadamente a informação oficial, valores, diretrizes ou orientações do Casal Fabre..."
+            placeholder="Descreva detalhadamente as diretrizes, procedimentos ou regras oficiais..."
             value={content}
             onChange={(e) => setContent(e.target.value)}
             className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-cyan-500/50 resize-none font-sans leading-relaxed"
@@ -130,7 +132,7 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
           </label>
           <input
             type="text"
-            placeholder="mentoria, valores, parcelamento, checkout"
+            placeholder="diretrizes, atendimento, suporte"
             value={tags}
             onChange={(e) => setTags(e.target.value)}
             className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-cyan-500/50 font-mono"
@@ -150,7 +152,7 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
             type="submit"
             className="px-5 py-2 text-xs font-semibold rounded-xl bg-cyan-600 hover:bg-cyan-500 text-neutral-950 transition-colors cursor-pointer shadow-md shadow-cyan-950/40"
           >
-            {initialData ? 'Salvar Alterações' : 'Adicionar ao Conhecimento'}
+            {initialData ? 'Salvar Alterações' : 'Salvar no Conhecimento Oficial'}
           </button>
         </div>
       </form>

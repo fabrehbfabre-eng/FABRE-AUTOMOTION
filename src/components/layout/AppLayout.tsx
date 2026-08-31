@@ -1,5 +1,6 @@
 /**
  * FABRE AUTOMATION - Main Layout Component
+ * Release 2: Supabase Persistence Foundation
  */
 
 import React from 'react';
@@ -12,6 +13,7 @@ interface AppLayoutProps {
   unreadCount?: number;
   activeAutomationsCount?: number;
   onOpenArchitectureModal?: () => void;
+  onOpenSchemaModal?: () => void;
   children: React.ReactNode;
 }
 
@@ -21,6 +23,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   unreadCount,
   activeAutomationsCount,
   onOpenArchitectureModal,
+  onOpenSchemaModal,
   children,
 }) => {
   return (
@@ -35,7 +38,11 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-neutral-950/40">
-        <Header activeTab={activeTab} onOpenArchitectureModal={onOpenArchitectureModal} />
+        <Header 
+          activeTab={activeTab} 
+          onOpenArchitectureModal={onOpenArchitectureModal}
+          onOpenSchemaModal={onOpenSchemaModal}
+        />
 
         <main className="flex-1 overflow-y-auto min-w-0">
           {children}

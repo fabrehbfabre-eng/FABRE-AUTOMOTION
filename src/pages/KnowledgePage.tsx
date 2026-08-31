@@ -1,6 +1,6 @@
 /**
  * FABRE AUTOMATION - Knowledge Base Page
- * Release 1: Foundation & Architecture
+ * Release 2: Supabase Persistence Foundation
  */
 
 import React, { useState } from 'react';
@@ -19,9 +19,10 @@ import {
   ShieldAlert, 
   Volume2, 
   Link as LinkIcon,
-  Sparkles,
-  Bot
+  ShieldCheck,
+  Database
 } from 'lucide-react';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 export const KnowledgePage: React.FC = () => {
   const {
@@ -38,16 +39,17 @@ export const KnowledgePage: React.FC = () => {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<KnowledgeItem | null>(null);
+  const isConnected = isSupabaseConfigured();
 
   const categories: { id: KnowledgeCategory | 'all'; label: string; icon: React.ElementType }[] = [
     { id: 'all', label: 'Todos os Tópicos', icon: BookOpen },
-    { id: 'product', label: 'Produtos & Mentoria', icon: ShoppingBag },
-    { id: 'price', label: 'Valores e Preços', icon: DollarSign },
-    { id: 'profile', label: 'Sobre Casal Fabre', icon: User },
+    { id: 'tone', label: 'Tom de Comunicação', icon: Volume2 },
     { id: 'rules', label: 'Regras de Atendimento', icon: ShieldAlert },
-    { id: 'tone', label: 'Tom de Voz', icon: Volume2 },
-    { id: 'faq', label: 'Perguntas Frequentes', icon: HelpCircle },
     { id: 'link', label: 'Links Oficiais', icon: LinkIcon },
+    { id: 'product', label: 'Produtos / Treinamentos', icon: ShoppingBag },
+    { id: 'price', label: 'Valores e Pagamento', icon: DollarSign },
+    { id: 'profile', label: 'Institucional', icon: User },
+    { id: 'faq', label: 'Perguntas Frequentes', icon: HelpCircle },
   ];
 
   const handleOpenCreate = () => {
@@ -75,10 +77,10 @@ export const KnowledgePage: React.FC = () => {
         <div>
           <h2 className="text-xl font-bold text-neutral-100 font-display flex items-center gap-2.5">
             <BookOpen size={22} className="text-purple-400" />
-            Base de Conhecimento
+            Base de Conhecimento Oficial
           </h2>
           <p className="text-xs text-neutral-400 mt-1">
-            Informações oficiais, produtos, valores e diretrizes que a IA consultará para responder com precisão e segurança.
+            Diretrizes oficiais, produtos validados e regras que a IA consultará para responder aos seguidores com segurança.
           </p>
         </div>
 
@@ -87,20 +89,21 @@ export const KnowledgePage: React.FC = () => {
           className="px-4 py-2.5 rounded-xl text-xs font-semibold bg-purple-600 hover:bg-purple-500 text-neutral-100 transition-colors flex items-center gap-2 shadow-lg shadow-purple-950/40 cursor-pointer shrink-0 self-start sm:self-auto"
         >
           <Plus size={16} />
-          <span>Novo Item de Conhecimento</span>
+          <span>Cadastrar Conhecimento Oficial</span>
         </button>
       </div>
 
-      {/* Release 1 IA Context Note */}
+      {/* Release 2 Data & Persistence Status Banner */}
       <div className="p-4 rounded-2xl bg-neutral-900/40 border border-neutral-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2.5 text-neutral-300">
-          <Bot size={16} className="text-purple-400 shrink-0" />
+          <ShieldCheck size={16} className="text-emerald-400 shrink-0" />
           <span>
-            <strong>Release 1:</strong> Estrutura de tópicos, prioridades e modelos TypeScript prontos. No <strong>Release 3</strong>, estes tópicos serão convertidos em Embeddings para o motor RAG da OpenAI.
+            <strong>Integridade de Dados:</strong> Todos os itens cadastrados aqui são salvos {isConnected ? 'diretamente no Supabase PostgreSQL' : 'no armazenamento local (Modo Demonstração)'}. Nenhum dado fictício é divulgado como informação oficial.
           </span>
         </div>
-        <span className="text-[11px] font-mono text-purple-400 bg-purple-950/80 px-2.5 py-1 rounded-full border border-purple-800/40 shrink-0">
-          RAG Ready
+        <span className="text-[11px] font-mono text-purple-400 bg-purple-950/80 px-2.5 py-1 rounded-full border border-purple-800/40 shrink-0 flex items-center gap-1">
+          <Database size={11} />
+          {isConnected ? 'Supabase Sync' : 'Demo Mode'}
         </span>
       </div>
 
@@ -111,7 +114,7 @@ export const KnowledgePage: React.FC = () => {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
           <input
             type="text"
-            placeholder="Pesquisar por tópicos, produtos, preços, regras ou tags..."
+            placeholder="Pesquisar por tópicos, regras, links ou tags..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-2 text-xs bg-neutral-900 border border-neutral-800 rounded-xl text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-purple-500/50"
@@ -152,13 +155,13 @@ export const KnowledgePage: React.FC = () => {
           <BookOpen size={32} className="mx-auto text-neutral-600" />
           <h3 className="text-sm font-semibold text-neutral-200">Nenhum tópico encontrado</h3>
           <p className="text-xs text-neutral-400 max-w-sm mx-auto">
-            Cadastre os primeiros produtos, regras e links para orientar as respostas da automação.
+            Cadastre as primeiras diretrizes, regras de atendimento e links oficiais para orientar as respostas da automação.
           </p>
           <button
             onClick={handleOpenCreate}
             className="mt-2 px-4 py-2 rounded-xl text-xs font-medium bg-neutral-800 text-neutral-200 border border-neutral-700 hover:bg-neutral-700 transition-colors cursor-pointer"
           >
-            Adicionar Tópico Agora
+            Cadastrar Primeiro Tópico
           </button>
         </div>
       ) : (

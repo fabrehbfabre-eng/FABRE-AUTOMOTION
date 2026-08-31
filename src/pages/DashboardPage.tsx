@@ -1,6 +1,6 @@
 /**
  * FABRE AUTOMATION - Dashboard Page
- * Release 1: Foundation & Architecture
+ * Release 2: Supabase Persistence Foundation
  */
 
 import React from 'react';
@@ -17,7 +17,6 @@ import {
   UserCheck, 
   Layers, 
   ArrowRight,
-  ShieldCheck,
   Sparkles
 } from 'lucide-react';
 import { NavItemKey } from '../components/layout/Sidebar';
@@ -26,12 +25,14 @@ interface DashboardPageProps {
   onNavigate: (tab: NavItemKey) => void;
   onSelectConversation: (id: string) => void;
   onOpenArchitectureModal: () => void;
+  onOpenSchemaModal?: () => void;
 }
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({
   onNavigate,
   onSelectConversation,
   onOpenArchitectureModal,
+  onOpenSchemaModal,
 }) => {
   const { stats, loading } = useDashboardStats();
   const { automations } = useAutomations();
@@ -51,9 +52,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   return (
     <div className="p-6 lg:p-8 space-y-8 max-w-7xl mx-auto">
-      {/* Release 1 Architecture Banner */}
+      {/* Release 2 Architecture & Supabase Status Banner */}
       <ArchitectureBanner
         onLearnMore={onOpenArchitectureModal}
+        onOpenSchemaModal={onOpenSchemaModal}
         onGoToSettings={() => onNavigate('settings')}
       />
 
@@ -162,7 +164,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
 
             <p className="text-xs text-neutral-400">
-              Regras inteligentes ativas para captar seguidores e enviar links da mentoria.
+              Regras inteligentes ativas para captar seguidores e responder com agilidade.
             </p>
 
             <div className="space-y-2.5 pt-1">
@@ -197,7 +199,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           <div className="p-3 rounded-xl bg-cyan-950/30 border border-cyan-800/30 flex items-center gap-2 text-xs text-cyan-300">
             <Sparkles size={14} className="shrink-0 text-cyan-400" />
             <span className="text-[11px] leading-tight">
-              Motor de regras preparado para expansão visual na Release 2.
+              Regras sincronizadas com persistência no Supabase PostgreSQL.
             </span>
           </div>
         </div>

@@ -1,54 +1,85 @@
 /**
  * FABRE AUTOMATION - Architecture Status Banner
+ * Release 2: Supabase Persistence Foundation
  */
 
 import React from 'react';
-import { Layers, ShieldCheck, Sparkles, ArrowRight } from 'lucide-react';
+import { Database, ShieldCheck, Sparkles, ArrowRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { isSupabaseConfigured } from '../../lib/supabase';
 
 interface ArchitectureBannerProps {
   onLearnMore?: () => void;
+  onOpenSchemaModal?: () => void;
   onGoToSettings?: () => void;
 }
 
 export const ArchitectureBanner: React.FC<ArchitectureBannerProps> = ({
   onLearnMore,
+  onOpenSchemaModal,
   onGoToSettings,
 }) => {
+  const isConnected = isSupabaseConfigured();
+
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-cyan-500/20 bg-gradient-to-r from-neutral-900/90 via-neutral-900/60 to-neutral-950 p-5 sm:p-6 shadow-xl shadow-black/30">
+    <div className="relative overflow-hidden rounded-2xl border border-neutral-800 bg-gradient-to-r from-neutral-900/90 via-neutral-900/70 to-neutral-950 p-5 sm:p-6 shadow-xl shadow-black/30">
       {/* Subtle decorative glow */}
-      <div className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-16 -left-16 w-48 h-48 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
+      <div className={`absolute -top-16 -right-16 w-48 h-48 rounded-full blur-3xl pointer-events-none ${isConnected ? 'bg-emerald-500/10' : 'bg-amber-500/10'}`} />
+      <div className="absolute -bottom-16 -left-16 w-48 h-48 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
 
       <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="space-y-1.5 max-w-3xl">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-mono">
-              <Sparkles size={12} className="text-cyan-400" />
-              RELEASE 1 • FOUNDATION & ARCHITECTURE
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono">
+              <Sparkles size={12} className="text-emerald-400" />
+              RELEASE 2 • SUPABASE PERSISTENCE
             </span>
+
+            {isConnected ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-emerald-950/60 text-emerald-300 border border-emerald-800/80 font-mono">
+                <CheckCircle2 size={12} className="text-emerald-400" />
+                Supabase PostgreSQL Ativo
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-amber-950/60 text-amber-300 border border-amber-800/80 font-mono">
+                <AlertTriangle size={12} className="text-amber-400" />
+                Modo Demonstração (Mock Local)
+              </span>
+            )}
+
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-neutral-800 text-neutral-400 border border-neutral-700">
-              <ShieldCheck size={12} className="text-emerald-400" />
-              Arquitetura Independente
+              <ShieldCheck size={12} className="text-cyan-400" />
+              Sem Dependência Firebase
             </span>
           </div>
 
           <h2 className="text-lg font-bold text-neutral-100 font-display">
-            Fundação Modular Preparada para o Casal Fabre
+            {isConnected 
+              ? 'Persistência Conectada ao Supabase PostgreSQL' 
+              : 'Arquitetura com Repositórios & Provedor Supabase Preparado'}
           </h2>
           <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed">
-            Esta versão estabelece a arquitetura limpa, tipos TypeScript rigorosos, serviços desacoplados e a interface do sistema. 
-            Sem dependência de serviços proprietários, pronta para receber as APIs oficiais da Meta (Instagram/Messenger/WhatsApp), OpenAI e Supabase.
+            {isConnected 
+              ? 'O banco de dados relacional oficial do FABRE AUTOMATION está ativo e persistindo contatos, mensagens, automações e conhecimento oficial.' 
+              : 'O sistema está operando em Modo Demonstração (mock isolado). Todos os dados mostrados são exemplos de teste. Execute o schema.sql no Supabase e preencha as variáveis de ambiente para ativar a persistência real.'}
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          {onOpenSchemaModal && (
+            <button
+              onClick={onOpenSchemaModal}
+              className="px-3.5 py-2 rounded-xl text-xs font-medium bg-emerald-950/40 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-800/50 transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <Database size={14} className="text-emerald-400" />
+              Ver Schema SQL
+            </button>
+          )}
+
           {onLearnMore && (
             <button
               onClick={onLearnMore}
-              className="px-3.5 py-2 rounded-xl text-xs font-medium bg-neutral-800/90 hover:bg-neutral-750 text-neutral-200 border border-neutral-700 transition-colors flex items-center gap-1.5 cursor-pointer"
+              className="px-3.5 py-2 rounded-xl text-xs font-medium bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 transition-colors flex items-center gap-1.5 cursor-pointer"
             >
-              <Layers size={14} className="text-cyan-400" />
               Ver Arquitetura
             </button>
           )}
@@ -58,7 +89,7 @@ export const ArchitectureBanner: React.FC<ArchitectureBannerProps> = ({
               onClick={onGoToSettings}
               className="px-4 py-2 rounded-xl text-xs font-medium bg-cyan-600 hover:bg-cyan-500 text-neutral-950 font-semibold transition-colors flex items-center gap-1.5 shadow-lg shadow-cyan-950/50 cursor-pointer"
             >
-              <span>Ver Conexões</span>
+              <span>Configurar Supabase</span>
               <ArrowRight size={14} />
             </button>
           )}

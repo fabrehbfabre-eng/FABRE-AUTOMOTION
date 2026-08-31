@@ -1,11 +1,12 @@
 /**
  * FABRE AUTOMATION - Create/Edit Automation Modal
+ * Release 2: Supabase Persistence Foundation
  */
 
 import React, { useState } from 'react';
 import { Modal } from '../common/Modal';
 import { Automation, ChannelType, AutomationTriggerType, AutomationActionType } from '../../types';
-import { Zap, Plus, ArrowRight, Trash2 } from 'lucide-react';
+import { Zap, ArrowRight } from 'lucide-react';
 
 interface AutomationModalProps {
   isOpen: boolean;
@@ -24,9 +25,9 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
   const [description, setDescription] = useState(initialData?.description || '');
   const [channel, setChannel] = useState<ChannelType | 'all'>(initialData?.channel || 'instagram');
   const [triggerType, setTriggerType] = useState<AutomationTriggerType>(initialData?.trigger.type || 'keyword_direct');
-  const [keywords, setKeywords] = useState(initialData?.trigger.config.keywords?.join(', ') || 'QUERO');
+  const [keywords, setKeywords] = useState(initialData?.trigger.config.keywords?.join(', ') || 'INFO');
   const [messageText, setMessageText] = useState(initialData?.actions[0]?.config.messageText || '');
-  const [tagName, setTagName] = useState(initialData?.actions[1]?.config.tagName || 'Lead-Mentoria');
+  const [tagName, setTagName] = useState(initialData?.actions[1]?.config.tagName || 'Interesse-Info');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,7 +100,7 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
             <input
               type="text"
               required
-              placeholder="Ex: Envio do Link da Mentoria por 'QUERO'"
+              placeholder="Ex: Resposta Automática por Palavra-Chave 'INFO'"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-cyan-500/50"
@@ -130,7 +131,7 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
           </label>
           <input
             type="text"
-            placeholder="Ex: Envia link automático com detalhes da mentoria quando o seguidor demonstrar interesse"
+            placeholder="Ex: Envia orientações e link do canal quando o seguidor solicitar informações"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-cyan-500/50"
@@ -163,7 +164,7 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
               <label className="text-[11px] text-neutral-400">Palavras-chave (separadas por vírgula)</label>
               <input
                 type="text"
-                placeholder="QUERO, quero, Quero"
+                placeholder="INFO, info, informacoes"
                 value={keywords}
                 onChange={(e) => setKeywords(e.target.value)}
                 className="w-full px-3 py-2 text-xs bg-neutral-900 border border-neutral-800 rounded-lg text-neutral-200 focus:outline-none focus:border-cyan-500/50 font-mono"
@@ -185,7 +186,7 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
               <textarea
                 rows={3}
                 required
-                placeholder="Olá! Segue o link oficial da Mentoria do Casal Fabre: https://casalfabre.com.br/mentoria"
+                placeholder="Olá! Agradecemos sua mensagem. Seguem as informações oficiais..."
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
                 className="w-full px-3 py-2 text-xs bg-neutral-900 border border-neutral-800 rounded-lg text-neutral-200 focus:outline-none focus:border-emerald-500/50 resize-none font-mono"
@@ -196,7 +197,7 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
               <label className="text-[11px] text-neutral-400">Adicionar Etiqueta ao Seguidor (Opcional)</label>
               <input
                 type="text"
-                placeholder="Lead-Mentoria"
+                placeholder="Interesse-Info"
                 value={tagName}
                 onChange={(e) => setTagName(e.target.value)}
                 className="w-full px-3 py-2 text-xs bg-neutral-900 border border-neutral-800 rounded-lg text-neutral-200 focus:outline-none focus:border-emerald-500/50 font-mono"

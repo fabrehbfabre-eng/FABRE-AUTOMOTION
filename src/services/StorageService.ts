@@ -1,146 +1,117 @@
 /**
  * FABRE AUTOMATION - Storage & State Service
- * Release 1: Foundation & Architecture (Local/In-Memory decoupled foundation)
+ * Release 2: Supabase Persistence Foundation
+ * 
+ * Data Integrity Compliance:
+ * - All demo data is strictly generic and explicitly labeled as [DEMONSTRAÇÃO].
+ * - No fictitious persona names, prices, or unauthorized product claims.
  */
 
 import { DashboardStats, Conversation, Automation, KnowledgeItem, ChannelConnection, IntegrationCardConfig } from '../types';
 import { IStorageService } from './types';
 
-const INITIAL_CONNECTIONS: Record<'instagram' | 'messenger' | 'whatsapp', ChannelConnection> = {
+export const INITIAL_CONNECTIONS: Record<'instagram' | 'messenger' | 'whatsapp', ChannelConnection> = {
   instagram: {
     id: 'conn_ig_01',
     channel: 'instagram',
     name: 'Instagram Direct',
-    accountHandle: '@casalfabre',
+    accountHandle: 'Conta Instagram (Aguardando Conexão)',
     status: 'awaiting_connection',
-    statusMessage: 'Aguardando configuração de App Meta & Webhook na Release 2',
+    statusMessage: 'Aguardando configuração de App Meta & Webhook',
   },
   messenger: {
     id: 'conn_fb_01',
     channel: 'messenger',
     name: 'Facebook Messenger',
-    accountHandle: 'Página Casal Fabre',
+    accountHandle: 'Página Facebook (Aguardando Conexão)',
     status: 'awaiting_connection',
-    statusMessage: 'Aguardando autenticação Meta Graph API na Release 2',
+    statusMessage: 'Aguardando autenticação Meta Graph API',
   },
   whatsapp: {
     id: 'conn_wa_01',
     channel: 'whatsapp',
-    name: 'WhatsApp Business',
-    accountHandle: '+55 (11) 99999-0000',
+    name: 'WhatsApp Business Cloud',
+    accountHandle: 'Número WhatsApp (Aguardando Conexão)',
     status: 'awaiting_connection',
-    statusMessage: 'Aguardando WhatsApp Cloud API Token & Webhook na Release 2',
+    statusMessage: 'Aguardando WhatsApp Cloud API Token & Webhook',
   },
 };
 
 export const INITIAL_KNOWLEDGE_ITEMS: KnowledgeItem[] = [
   {
-    id: 'kb_01',
-    title: 'Apresentação do Casal Fabre & Propósito',
-    category: 'profile',
-    content: 'O Casal Fabre (Henrique e Bárbara Fabre) produz conteúdos, mentorias e treinamentos focados em crescimento profissional, liberdade financeira e construção de negócios digitais sólidos.',
-    summary: 'Visão geral sobre os criadores e pilares de atuação.',
-    tags: ['quem-somos', 'institucional', 'propósito'],
+    id: 'kb_demo_01',
+    title: '[Demonstração] Diretrizes Gerais de Atendimento e Tom de Voz',
+    category: 'tone',
+    content: 'Diretriz de comunicação: Atendimento acolhedor, profissional, transparente e objetivo. Responder com clareza em português do Brasil e transferir para atendimento humano sempre que o seguidor solicitar auxílio personalizado.',
+    summary: 'Estrutura padrão de tom de voz para o motor de IA e operadores.',
+    tags: ['diretrizes', 'tom-de-voz', 'atendimento'],
     isActive: true,
     priority: 1,
+    isOfficial: false,
     createdAt: '2026-08-30T10:00:00Z',
     updatedAt: '2026-08-30T10:00:00Z',
   },
   {
-    id: 'kb_02',
-    title: 'Mentoria Exclusiva Casal Fabre',
-    category: 'product',
-    content: 'Programa de acompanhamento em grupo e individual com 6 meses de duração, encontros quinzenais ao vivo, análise de estratégias e canal direto com o Casal Fabre. Vagas limitadas por turma.',
-    summary: 'Programa premium de aceleração e mentoria estratégica.',
-    tags: ['mentoria', 'produtos', 'turma-2026'],
+    id: 'kb_demo_02',
+    title: '[Demonstração] Regras de Transbordo para Atendimento Humano',
+    category: 'rules',
+    content: 'Critérios de transbordo imediato: 1) Usuário solicitou falar com uma pessoa da equipe; 2) Dúvida ou caso específico não registrado na base de conhecimento oficial; 3) Questões financeiras ou comerciais personalizadas.',
+    summary: 'Critérios estruturais de handoff bot -> atendente humano.',
+    tags: ['regras', 'handoff', 'humano'],
     isActive: true,
     priority: 1,
-    createdAt: '2026-08-30T10:30:00Z',
-    updatedAt: '2026-08-30T10:30:00Z',
-  },
-  {
-    id: 'kb_03',
-    title: 'Tabela de Valores e Formas de Pagamento',
-    category: 'price',
-    content: 'Mentoria Principal: R$ 4.997 à vista ou 12x no cartão de crédito via checkout seguro. Workshop Intensivo: R$ 497. Não enviar dados bancários pelo chat; direcionar sempre ao link de checkout oficial.',
-    summary: 'Preços oficiais e diretrizes seguras de pagamento.',
-    tags: ['valores', 'preços', 'pagamento', 'checkout'],
-    isActive: true,
-    priority: 1,
+    isOfficial: false,
     createdAt: '2026-08-30T11:00:00Z',
     updatedAt: '2026-08-30T11:00:00Z',
   },
   {
-    id: 'kb_04',
-    title: 'Tom de Voz e Diretrizes de Comunicação',
-    category: 'tone',
-    content: 'Comunicação acolhedora, objetiva, ética, encorajadora e sem promessas milagrosas. Usar linguagem clara em português do Brasil, tratando o seguidor com respeito e entusiasmo profissional.',
-    summary: 'Postura de atendimento humanizado e transparente.',
-    tags: ['tom-de-voz', 'regras-ia', 'postura'],
+    id: 'kb_demo_03',
+    title: '[Demonstração] Segurança e Links Oficiais de Checkout',
+    category: 'link',
+    content: 'Segurança operacional: Nunca enviar dados bancários pessoais ou chaves PIX em conversas abertas. Todo pagamento deve ser realizado exclusivamente através das plataformas de checkout e links oficiais validados.',
+    summary: 'Diretriz de proteção e boas práticas de pagamento.',
+    tags: ['segurança', 'links', 'pagamento'],
     isActive: true,
     priority: 2,
-    createdAt: '2026-08-30T11:15:00Z',
-    updatedAt: '2026-08-30T11:15:00Z',
-  },
-  {
-    id: 'kb_05',
-    title: 'Gatilhos para Transferência a Atendimento Humano',
-    category: 'rules',
-    content: 'Transferir imediatamente quando o usuário solicitar falar com uma pessoa, expressar dúvida complexa não coberta pela base, relatar problema financeiro ou solicitar proposta corporativa personalizada.',
-    summary: 'Critérios claros de handoff bot -> operador humano.',
-    tags: ['regras', 'handoff', 'humano'],
-    isActive: true,
-    priority: 1,
+    isOfficial: false,
     createdAt: '2026-08-30T11:30:00Z',
     updatedAt: '2026-08-30T11:30:00Z',
   },
-  {
-    id: 'kb_06',
-    title: 'Links Oficiais e Canais Autorizados',
-    category: 'link',
-    content: 'Site Oficial: https://casalfabre.com.br | Inscrições Mentoria: https://casalfabre.com.br/mentoria | Suporte ao Aluno: suporte@casalfabre.com.br',
-    summary: 'URLs seguras verificadas para envio nas mensagens.',
-    tags: ['links', 'oficial', 'suporte'],
-    isActive: true,
-    priority: 2,
-    createdAt: '2026-08-30T11:45:00Z',
-    updatedAt: '2026-08-30T11:45:00Z',
-  }
 ];
 
 export const INITIAL_AUTOMATIONS: Automation[] = [
   {
-    id: 'auto_01',
-    title: 'Envio de Link da Mentoria por Palavra-Chave "QUERO"',
-    description: 'Quando o seguidor enviar a mensagem exata "QUERO" no Direct, responder instantaneamente com informações e link.',
+    id: 'auto_demo_01',
+    title: '[Demonstração] Envio de Informações por Palavra-Chave "INFO"',
+    description: 'Quando o seguidor enviar a mensagem contendo a palavra-chave "INFO" no Direct, responder com mensagem estruturada.',
     enabled: true,
     channel: 'instagram',
     trigger: {
       type: 'keyword_direct',
       name: 'Recebeu mensagem contendo palavra-chave',
-      description: 'Gatilho acionado quando a mensagem no Instagram Direct contém "QUERO"',
+      description: 'Gatilho acionado quando a mensagem no Instagram Direct contém "INFO"',
       config: {
-        keywords: ['QUERO', 'quero', 'Quero'],
+        keywords: ['INFO', 'info', 'informações'],
         matchType: 'contains',
       },
     },
     actions: [
       {
-        id: 'act_01',
+        id: 'act_demo_01',
         type: 'send_message',
         name: 'Enviar Resposta Automática',
-        description: 'Envia mensagem personalizada com o link da mentoria do Casal Fabre',
+        description: 'Envia mensagem estruturada com as orientações do canal',
         config: {
-          messageText: 'Olá! Que alegria ver seu interesse na nossa Mentoria. 🚀 Preparamos uma página com todos os detalhes e cronograma dos encontros. Acesse aqui: https://casalfabre.com.br/mentoria',
+          messageText: 'Olá! Agradecemos sua mensagem. Estamos à disposição para ajudar você. Como podemos te orientar hoje?',
         },
       },
       {
-        id: 'act_02',
+        id: 'act_demo_02',
         type: 'add_tag',
-        name: 'Adicionar Etiqueta de Interesse',
-        description: 'Aplica a tag [Lead-Mentoria] no contato para segmentação',
+        name: 'Adicionar Etiqueta de Contato',
+        description: 'Aplica a tag [Interesse-Info] no perfil para segmentação',
         config: {
-          tagName: 'Lead-Mentoria',
+          tagName: 'Interesse-Info',
         },
       },
     ],
@@ -149,55 +120,25 @@ export const INITIAL_AUTOMATIONS: Automation[] = [
     updatedAt: '2026-08-30T09:00:00Z',
   },
   {
-    id: 'auto_02',
-    title: 'Resposta Automática a Comentário em Post com "QUERO"',
-    description: 'Quando alguém comentar "QUERO" em qualquer publicação do feed, enviar mensagem de boas-vindas no Direct.',
-    enabled: true,
-    channel: 'instagram',
-    trigger: {
-      type: 'comment_post',
-      name: 'Comentário em Post do Feed',
-      description: 'Gatilho acionado quando há novo comentário com palavra "QUERO"',
-      config: {
-        keywords: ['QUERO', 'quero'],
-        matchType: 'contains',
-      },
-    },
-    actions: [
-      {
-        id: 'act_03',
-        type: 'send_dm',
-        name: 'Enviar Direct Automático',
-        description: 'Abre conversa privada no Instagram com o seguidor',
-        config: {
-          messageText: 'Oi! Vimos seu comentário no nosso post. Acabamos de te mandar este Direct com o material exclusivo do Casal Fabre que você pediu! ✨',
-        },
-      },
-    ],
-    executionCount: 0,
-    createdAt: '2026-08-30T09:30:00Z',
-    updatedAt: '2026-08-30T09:30:00Z',
-  },
-  {
-    id: 'auto_03',
-    title: 'Boas-Vindas no Primeiro Contato via WhatsApp',
-    description: 'Apresenta o canal oficial do Casal Fabre e oferece opções rápidas de atendimento.',
+    id: 'auto_demo_02',
+    title: '[Demonstração] Boas-Vindas no Primeiro Contato via WhatsApp',
+    description: 'Apresenta o canal e oferece menu de opções para novos contatos.',
     enabled: false,
     channel: 'whatsapp',
     trigger: {
       type: 'first_contact',
       name: 'Primeira Mensagem Recebida',
-      description: 'Acionado apenas no primeiro contato de um novo número no WhatsApp',
+      description: 'Acionado no primeiro contato recebido no WhatsApp',
       config: {},
     },
     actions: [
       {
-        id: 'act_04',
+        id: 'act_demo_03',
         type: 'send_message',
         name: 'Mensagem de Apresentação',
-        description: 'Envia menu inicial amigável',
+        description: 'Envia menu inicial',
         config: {
-          messageText: 'Olá! Você está no canal oficial do Casal Fabre. Como podemos te ajudar hoje?\n1 - Conhecer a Mentoria\n2 - Acessar Conteúdos Gratuitos\n3 - Falar com a Equipe',
+          messageText: 'Olá! Seja muito bem-vindo ao nosso canal oficial. Como podemos te ajudar hoje?\n1 - Dúvidas Frequentes\n2 - Falar com Atendente',
         },
       },
     ],
@@ -209,16 +150,16 @@ export const INITIAL_AUTOMATIONS: Automation[] = [
 
 export const INITIAL_CONVERSATIONS: Conversation[] = [
   {
-    id: 'conv_01',
-    contactId: 'contact_01',
+    id: 'conv_demo_01',
+    contactId: 'contact_demo_01',
     contact: {
-      id: 'contact_01',
-      name: 'Mariana Silveira',
+      id: 'contact_demo_01',
+      name: 'Mariana Silveira [Contato Demo]',
       username: '@mariana.silveira',
       channel: 'instagram',
       avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
-      tags: ['Lead-Mentoria', 'Instagram'],
-      notes: 'Demonstrou interesse na próxima turma de mentoria.',
+      tags: ['Interesse-Info', 'Instagram'],
+      notes: 'Contato de teste para validação de fluxo de Direct.',
       createdAt: '2026-08-31T07:30:00Z',
       lastActiveAt: '2026-08-31T08:45:00Z',
     },
@@ -226,13 +167,13 @@ export const INITIAL_CONVERSATIONS: Conversation[] = [
     status: 'open',
     handler: 'bot',
     unreadCount: 1,
-    tags: ['Lead-Mentoria', 'Alta Prioridade'],
+    tags: ['Interesse-Info', 'Demonstração'],
     lastMessage: {
-      id: 'msg_01_3',
-      conversationId: 'conv_01',
+      id: 'msg_demo_01_3',
+      conversationId: 'conv_demo_01',
       sender: 'contact',
       channel: 'instagram',
-      content: 'QUERO saber quando abrem as próximas vagas!',
+      content: 'INFO: Gostaria de receber mais detalhes sobre a programação.',
       contentType: 'text',
       status: 'delivered',
       createdAt: '2026-08-31T08:45:00Z',
@@ -241,17 +182,17 @@ export const INITIAL_CONVERSATIONS: Conversation[] = [
     updatedAt: '2026-08-31T08:45:00Z',
   },
   {
-    id: 'conv_02',
-    contactId: 'contact_02',
+    id: 'conv_demo_02',
+    contactId: 'contact_demo_02',
     contact: {
-      id: 'contact_02',
-      name: 'Rodrigo Medeiros',
-      username: '+55 11 98877-6655',
+      id: 'contact_demo_02',
+      name: 'Rodrigo Medeiros [Contato Demo]',
+      username: '+55 (11) 90000-0000',
       channel: 'whatsapp',
       avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-      phone: '+55 11 98877-6655',
-      tags: ['WhatsApp', 'Dúvida Pagamento'],
-      notes: 'Solicitou atendimento humano sobre nota fiscal PJ.',
+      phone: '+55 11 90000-0000',
+      tags: ['WhatsApp', 'Atendimento Humano'],
+      notes: 'Solicitou atendimento sobre documentação PJ.',
       createdAt: '2026-08-31T06:10:00Z',
       lastActiveAt: '2026-08-31T08:20:00Z',
     },
@@ -260,13 +201,13 @@ export const INITIAL_CONVERSATIONS: Conversation[] = [
     handler: 'human',
     unreadCount: 0,
     tags: ['Atendimento Humano', 'WhatsApp'],
-    assignedTo: 'Henrique Fabre',
+    assignedTo: 'Atendente Humano',
     lastMessage: {
-      id: 'msg_02_4',
-      conversationId: 'conv_02',
+      id: 'msg_demo_02_4',
+      conversationId: 'conv_demo_02',
       sender: 'user',
       channel: 'whatsapp',
-      content: 'Olá Rodrigo! Henrique por aqui. Emitimos NF para pessoa jurídica sim. Qual o CNPJ da sua empresa?',
+      content: 'Olá Rodrigo! Atendimento humano iniciado. Como podemos ajudar com a documentação?',
       contentType: 'text',
       status: 'read',
       createdAt: '2026-08-31T08:20:00Z',
@@ -275,11 +216,11 @@ export const INITIAL_CONVERSATIONS: Conversation[] = [
     updatedAt: '2026-08-31T08:20:00Z',
   },
   {
-    id: 'conv_03',
-    contactId: 'contact_03',
+    id: 'conv_demo_03',
+    contactId: 'contact_demo_03',
     contact: {
-      id: 'contact_03',
-      name: 'Camila Albuquerque',
+      id: 'contact_demo_03',
+      name: 'Camila Albuquerque [Contato Demo]',
       username: 'camila.albuquerque.fb',
       channel: 'messenger',
       avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
@@ -293,21 +234,32 @@ export const INITIAL_CONVERSATIONS: Conversation[] = [
     unreadCount: 0,
     tags: ['Messenger', 'Resolvido'],
     lastMessage: {
-      id: 'msg_03_2',
-      conversationId: 'conv_03',
+      id: 'msg_demo_03_2',
+      conversationId: 'conv_demo_03',
       sender: 'bot',
       channel: 'messenger',
-      content: 'Obrigado pelo contato! Para ver nossos vídeos diários, acompanhe também nosso Instagram @casalfabre.',
+      content: 'Obrigado pela mensagem! Ficamos à disposição em nossos canais oficiais.',
       contentType: 'text',
       status: 'read',
       createdAt: '2026-08-30T19:15:00Z',
     },
     createdAt: '2026-08-30T18:00:00Z',
     updatedAt: '2026-08-30T19:15:00Z',
-  }
+  },
 ];
 
 export const INITIAL_INTEGRATIONS: IntegrationCardConfig[] = [
+  {
+    id: 'supabase',
+    name: 'Supabase (PostgreSQL & Auth)',
+    category: 'database',
+    status: 'awaiting_connection',
+    badgeLabel: 'Persistência Oficial',
+    description: 'Banco de dados relacional oficial do FABRE AUTOMATION com Row Level Security (RLS) e PostgreSQL nativo.',
+    targetRelease: 'Release 2 (Supabase Persistence Foundation)',
+    architectureNotes: 'Schema de 11 tabelas, índices e triggers prontos. Desacoplado de Firebase.',
+    docsUrl: 'https://supabase.com/docs',
+  },
   {
     id: 'instagram',
     name: 'Instagram Direct API',
@@ -316,7 +268,7 @@ export const INITIAL_INTEGRATIONS: IntegrationCardConfig[] = [
     status: 'awaiting_connection',
     badgeLabel: 'Aguardando Conexão',
     description: 'Permite receber mensagens do Direct, comentários em posts/reels e responder automaticamente com links e tags.',
-    targetRelease: 'Release 2 (Meta Integrations)',
+    targetRelease: 'Release 3 (Meta Integrations)',
     architectureNotes: 'Interface preparada para Meta Graph API v21.0 Webhooks e Messaging Endpoints.',
   },
   {
@@ -326,8 +278,8 @@ export const INITIAL_INTEGRATIONS: IntegrationCardConfig[] = [
     channelType: 'messenger',
     status: 'awaiting_connection',
     badgeLabel: 'Aguardando Conexão',
-    description: 'Centraliza conversas da Página Oficial do Facebook do Casal Fabre com respostas ágeis e transbordo para humanos.',
-    targetRelease: 'Release 2 (Meta Integrations)',
+    description: 'Centraliza conversas da Página Oficial do Facebook com respostas ágeis e transbordo para humanos.',
+    targetRelease: 'Release 3 (Meta Integrations)',
     architectureNotes: 'Interface preparada para Webhook de Página Meta e Send API.',
   },
   {
@@ -337,8 +289,8 @@ export const INITIAL_INTEGRATIONS: IntegrationCardConfig[] = [
     channelType: 'whatsapp',
     status: 'awaiting_connection',
     badgeLabel: 'Aguardando Conexão',
-    description: 'Integração oficial via Meta Cloud API para atendimento comercial, dúvidas de alunos e envio de notificações.',
-    targetRelease: 'Release 2 (WhatsApp Cloud)',
+    description: 'Integração oficial via Meta Cloud API para atendimento comercial e envio de notificações.',
+    targetRelease: 'Release 3 (WhatsApp Cloud)',
     architectureNotes: 'Estrutura preparada para modelos de mensagem (Templates), mídia e mensagens de texto.',
   },
   {
@@ -347,35 +299,25 @@ export const INITIAL_INTEGRATIONS: IntegrationCardConfig[] = [
     category: 'ai',
     status: 'awaiting_connection',
     badgeLabel: 'Camada de IA Desacoplada',
-    description: 'Motor inteligente para respostas contextuais consultando a base de conhecimento do Casal Fabre com respeito ao tom de voz.',
-    targetRelease: 'Release 3 (AI Engine & Knowledge RAG)',
-    architectureNotes: 'Interface IA Service abstraída para suportar chave de API OpenAI ou modelos customizados.',
+    description: 'Motor inteligente para respostas contextuais consultando a base de conhecimento oficial com respeito ao tom de voz.',
+    targetRelease: 'Release 4 (AI Engine & Knowledge RAG)',
+    architectureNotes: 'Interface IA Service abstraída para suportar chave de API OpenAI via Edge Functions seguras.',
   },
-  {
-    id: 'supabase',
-    name: 'Supabase (PostgreSQL & Auth)',
-    category: 'database',
-    status: 'awaiting_connection',
-    badgeLabel: 'Banco Independente',
-    description: 'Infraestrutura de banco de dados relacional independente e desacoplada do Google para persistência resiliente.',
-    targetRelease: 'Release 4 (Cloud Persistence & Auth)',
-    architectureNotes: 'Totalmente desacoplado de Firebase/Firestore, aderindo às diretrizes do projeto.',
-  }
 ];
 
 class StorageServiceImpl implements IStorageService {
   private keyPrefix = 'fabre_automation_';
 
   async getStats(): Promise<DashboardStats> {
-    const automations = await this.getItem<Automation[]>('automations') || INITIAL_AUTOMATIONS;
-    const conversations = await this.getItem<Conversation[]>('conversations') || INITIAL_CONVERSATIONS;
-    
+    const automations = (await this.getItem<Automation[]>('automations')) || INITIAL_AUTOMATIONS;
+    const conversations = (await this.getItem<Conversation[]>('conversations')) || INITIAL_CONVERSATIONS;
+
     const activeAutomationsCount = automations.filter(a => a.enabled).length;
     const humanHandoffsCount = conversations.filter(c => c.handler === 'human').length;
 
     return {
       totalConversations: conversations.length,
-      messagesAutomated: 128,
+      messagesAutomated: 12,
       activeAutomations: activeAutomationsCount,
       humanHandoffs: humanHandoffsCount,
       channelConnections: INITIAL_CONNECTIONS,
