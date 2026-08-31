@@ -1,0 +1,36 @@
+# Supabase CLI Configuration File
+# Project: FABRE AUTOMATION (Release 6: Supabase Edge Functions Deployment)
+
+project_id = "fabre-automation"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+# ------------------------------------------------------------------------------
+# EDGE FUNCTIONS DEPLOYMENT DEFINITIONS
+# ------------------------------------------------------------------------------
+
+[functions.health-check]
+verify_jwt = false
+
+[functions.meta-webhook]
+verify_jwt = false
+
+[functions.whatsapp-webhook]
+verify_jwt = false
+
+[functions.ai-completion]
+verify_jwt = false

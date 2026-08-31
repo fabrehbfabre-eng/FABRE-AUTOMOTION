@@ -1,10 +1,21 @@
 /**
  * FABRE AUTOMATION - Backend & Edge Functions Health Check Service
- * Release 4: Supabase Activation & Backend Deployment
+ * Release 6: Supabase Edge Functions Deployment
  */
 
 import { testSupabaseConnection, isSupabaseConfigured, getSupabaseConfig, SupabaseConnectionStatus } from '../lib/supabase';
 import { ServerHealthStatus } from '../types/webhook';
+
+export type EdgeFunctionDeployStatus = 'ready_for_deploy' | 'deployed' | 'error' | 'unconfigured';
+
+export interface EdgeFunctionItemStatus {
+  name: string;
+  path: string;
+  endpoint: string;
+  verifyJwt: boolean;
+  status: EdgeFunctionDeployStatus;
+  description: string;
+}
 
 export interface ComprehensiveHealthReport {
   frontend: {
@@ -21,10 +32,12 @@ export interface ComprehensiveHealthReport {
     details?: Record<string, unknown>;
   };
   backend: {
+    status: EdgeFunctionDeployStatus;
     configured: boolean;
     available: boolean;
     url?: string;
     message: string;
+    functions: EdgeFunctionItemStatus[];
     details?: Partial<ServerHealthStatus>;
   };
   ai: {
@@ -64,8 +77,11 @@ export class HealthCheckService {
     }
 
     // 2. Edge Functions Backend Health Check
+    let backendStatus: EdgeFunctionDeployStatus = isConfigured ? 'ready_for_deploy' : 'unconfigured';
     let backendAvailable = false;
-    let backendMessage = 'Edge Functions aguardando deploy no Supabase';
+    let backendMessage = isConfigured 
+      ? 'Edge Functions com código pronto no repositório. Aguardando deploy no Supabase via CLI.' 
+      : 'Supabase URL não configurada. Configure o .env para habilitar verificação.';
     let backendDetails: Partial<ServerHealthStatus> | undefined = undefined;
 
     if (isConfigured && supabaseConfig.url) {
@@ -86,15 +102,57 @@ export class HealthCheckService {
 
         if (response.ok) {
           backendAvailable = true;
+          backendStatus = 'deployed';
           backendDetails = await response.json();
-          backendMessage = 'Edge Functions ativas e respondendo com sucesso';
+          backendMessage = 'Edge Functions publicadas e respondendo com sucesso no Supabase';
+        } else if (response.status === 404) {
+          backendStatus = 'ready_for_deploy';
+          backendMessage = 'Código preparado no repositório. Função health-check ainda não publicada no Supabase (404).';
         } else {
-          backendMessage = `Edge Function respondeu com status ${response.status} (Deploy pendente)`;
+          backendStatus = 'error';
+          backendMessage = `Edge Function respondeu com status HTTP ${response.status}. Verifique logs no Supabase Dashboard.`;
         }
       } catch {
-        backendMessage = 'Edge Function health-check inacessível ou aguardando deploy no projeto Supabase';
+        backendStatus = 'ready_for_deploy';
+        backendMessage = 'Código pronto para deploy. Função health-check aguardando publicação via Supabase CLI.';
       }
     }
+
+    // Individual Functions Inventory
+    const functions: EdgeFunctionItemStatus[] = [
+      {
+        name: 'health-check',
+        path: '/supabase/functions/health-check',
+        endpoint: supabaseConfig.url ? `${supabaseConfig.url}/functions/v1/health-check` : '/functions/v1/health-check',
+        verifyJwt: false,
+        status: backendStatus,
+        description: 'Auditoria de conectividade com PostgreSQL, readiness e runtime Deno',
+      },
+      {
+        name: 'meta-webhook',
+        path: '/supabase/functions/meta-webhook',
+        endpoint: supabaseConfig.url ? `${supabaseConfig.url}/functions/v1/meta-webhook` : '/functions/v1/meta-webhook',
+        verifyJwt: false,
+        status: backendStatus === 'deployed' ? 'deployed' : 'ready_for_deploy',
+        description: 'Handshake de verificação Meta e ingestão com idempotência para Instagram Direct',
+      },
+      {
+        name: 'whatsapp-webhook',
+        path: '/supabase/functions/whatsapp-webhook',
+        endpoint: supabaseConfig.url ? `${supabaseConfig.url}/functions/v1/whatsapp-webhook` : '/functions/v1/whatsapp-webhook',
+        verifyJwt: false,
+        status: backendStatus === 'deployed' ? 'deployed' : 'ready_for_deploy',
+        description: 'Handshake e ingestão de mensagens da WhatsApp Business Cloud API',
+      },
+      {
+        name: 'ai-completion',
+        path: '/supabase/functions/ai-completion',
+        endpoint: supabaseConfig.url ? `${supabaseConfig.url}/functions/v1/ai-completion` : '/functions/v1/ai-completion',
+        verifyJwt: false,
+        status: backendStatus === 'deployed' ? 'deployed' : 'ready_for_deploy',
+        description: 'Pipeline de IA preparada (Explicitamente desativada na Release 6)',
+      },
+    ];
 
     // 3. Determine Overall Status
     let overallStatus: 'ready' | 'schema_pending' | 'demo_mode' | 'configuration_error' = 'demo_mode';
@@ -112,7 +170,7 @@ export class HealthCheckService {
       frontend: {
         status: 'ok',
         environment: 'Client-Side React (Vite)',
-        version: 'Release 4.0.0',
+        version: 'Release 6.0.0',
       },
       database: {
         status: dbStatus,
@@ -123,16 +181,18 @@ export class HealthCheckService {
         details: dbDetails,
       },
       backend: {
+        status: backendStatus,
         configured: isConfigured,
         available: backendAvailable,
         url: supabaseConfig.url ? `${supabaseConfig.url}/functions/v1` : undefined,
         message: backendMessage,
+        functions,
         details: backendDetails,
       },
       ai: {
         enabled: false,
         status: 'deactivated',
-        message: 'Motor de IA desacoplado e inativo no Release 4 (AI Service not enabled).',
+        message: 'Motor de IA desacoplado e inativo na Release 6 (AI Service not enabled).',
       },
       channels: {
         meta: 'awaiting_connection',

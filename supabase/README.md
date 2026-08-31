@@ -1,65 +1,134 @@
-# FABRE AUTOMATION - Supabase Architecture & Persistence Guide
-**Release 2 | Supabase Persistence Foundation**
+# FABRE AUTOMATION - Supabase Architecture & Edge Functions Guide
+**Release 6 | Supabase Edge Functions Deployment**
 
 ---
 
-## 1. Visão Geral
+## 1. Visão Geral do Backend
 
-O Supabase PostgreSQL é o banco de dados relacional oficial do **FABRE AUTOMATION**.
+O backend oficial do **FABRE AUTOMATION** é executado como **Edge Functions server-side em ambiente Deno** no Supabase, conectado diretamente ao banco de dados relacional **Supabase PostgreSQL**.
 
-A aplicação foi estruturada no padrão **Provider / Repository**, permitindo alternar de forma 100% transparente entre:
-- **MockProvider (Demo Mode):** Modo local isolado em memória e cache, ativo quando as variáveis de ambiente ainda não foram configuradas.
-- **SupabaseProvider (Connected Mode):** Persistência real em banco PostgreSQL oficial com Row Level Security (RLS) e consultas seguras.
+Toda a infraestrutura foi projetada com:
+- **Zero Secrets no Frontend:** Nenhuma chave mestra ou segredo de canal reside no cliente React.
+- **Idempotência Estrita:** Garantia de deduplicação de eventos via `external_event_id` na tabela `messages`.
+- **Validação Criptográfica:** Handshake GET e verificação de assinatura HMAC-SHA256 para webhooks da Meta.
+- **Isolamento de Funções:** 4 funções independentes com código compartilhado em `_shared/`.
 
 ---
 
-## 2. Como Configurar no Supabase
+## 2. Estrutura de Edge Functions (`/supabase/functions/`)
 
-### Passo 1: Executar o Script SQL
-1. Acesse o [Supabase Dashboard](https://supabase.com/dashboard).
-2. Abra o **SQL Editor**.
-3. Copie todo o conteúdo do arquivo `supabase/schema.sql` e execute (`Run`).
-4. O script criará:
-   - 11 tabelas com chaves estrangeiras, índices e gatilhos de `updated_at`.
-   - Políticas de Row Level Security (RLS).
-   - Inserções iniciais dos canais de atendimento.
-
-### Passo 2: Configurar as Variáveis de Ambiente
-No seu arquivo `.env` (ou painel de configurações do AI Studio / container):
-
-```env
-# URL do projeto Supabase
-VITE_SUPABASE_URL=https://seu-projeto.supabase.co
-
-# Chave pública / Anon (Safe para o navegador)
-VITE_SUPABASE_PUBLISHABLE_KEY=sbp_... ou eyJhbGciOi...
+```
+supabase/
+├── config.toml                     # Configuração oficial da Supabase CLI
+├── deploy.sh                       # Script automatizado de deploy
+├── schema.sql                      # Schema DDL (11 tabelas, índices e RLS)
+└── functions/
+    ├── _shared/                    # Módulos compartilhados (NÃO deployar como função)
+    │   ├── cors.ts                 # Cabeçalhos e pre-flight OPTIONS
+    │   ├── errors.ts               # Respostas padronizadas de erro e sucesso
+    │   ├── idempotency.ts          # Verificação de unicidade no PostgreSQL
+    │   ├── logger.ts               # Logger higienizado (redige segredos)
+    │   └── supabaseServer.ts       # Cliente Supabase com Service Role Key
+    ├── health-check/               # Auditoria de conectividade e readiness
+    │   └── index.ts
+    ├── meta-webhook/               # Ingestão de mensagens do Instagram Direct / Messenger
+    │   └── index.ts
+    ├── whatsapp-webhook/           # Ingestão de mensagens da WhatsApp Business API
+    │   └── index.ts
+    └── ai-completion/              # Pipeline de IA (desativada nesta Release)
+        └── index.ts
 ```
 
 ---
 
-## 3. Segurança & Isolamento de Chaves
+## 3. Matriz de Edge Functions
 
-| Tipo de Chave | Onde Pode Ficar | Exposta no Frontend? | Finalidade |
-| :--- | :--- | :---: | :--- |
-| `VITE_SUPABASE_URL` | Client & Server | Sim (Segura) | Endereço do endpoint |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Client & Server | Sim (Protegida por RLS) | Operações do App autenticado |
-| `SUPABASE_SECRET_KEY` / `service_role` | **Apenas Backend / Edge Functions** | **NUNCA** | Tarefas administrativas de alto privilégio |
-| `OPENAI_API_KEY` | **Apenas Backend / Edge Functions** | **NUNCA** | Execução de IA e Embeddings |
-| `META_APP_SECRET` | **Apenas Backend / Edge Functions** | **NUNCA** | Assinatura de Webhooks Meta |
-| `META_ACCESS_TOKEN` / `WHATSAPP_TOKEN` | **Apenas Backend / Edge Functions** | **NUNCA** | Envio de mensagens em nome do canal |
+| Função | Endpoint Relativo | JWT Verification | Métodos | Finalidade Principal |
+| :--- | :--- | :---: | :---: | :--- |
+| **`health-check`** | `/functions/v1/health-check` | `false` | `GET` | Diagnóstico de conectividade DB e runtime Deno |
+| **`meta-webhook`** | `/functions/v1/meta-webhook` | `false` | `GET, POST` | Handshake Meta e Ingestão do Instagram Direct |
+| **`whatsapp-webhook`** | `/functions/v1/whatsapp-webhook` | `false` | `GET, POST` | Handshake Meta e Ingestão do WhatsApp Cloud |
+| **`ai-completion`** | `/functions/v1/ai-completion` | `false` | `POST` | Processamento de IA (desativada na Release 6) |
 
 ---
 
-## 4. Estrutura de Tabelas Criadas
+## 4. Como Fazer o Deploy via Supabase CLI
 
-1. `profiles`: Perfis de contatos, seguidores e operadores.
-2. `conversations`: Conversas unificadas (Instagram Direct, WhatsApp, Messenger).
-3. `messages`: Histórico de mensagens, mídias e eventos de sistema.
-4. `automations`: Definição de regras de automação.
-5. `automation_triggers`: Gatilhos associados a cada automação.
-6. `automation_actions`: Ações sequenciais associadas a cada automação.
-7. `knowledge_items`: Base de conhecimento para IA e operadores.
-8. `channel_connections`: Status de conexão dos canais de mensageria.
-9. `contact_tags`: Tags de segmentação de contatos.
-10. `contact_tag_assignments`: Associação N:N entre contatos e tags.
-11. `contact_notes`: Notas internas registradas por operadores sobre um contato.
+### Pré-requisitos
+1. Ter a **Supabase CLI** instalada na máquina de desenvolvimento:
+   ```bash
+   # Via npm:
+   npm install -g supabase
+
+   # Ou via Homebrew (macOS / Linux):
+   brew install supabase/tap/supabase
+   ```
+
+2. Autenticar sua conta Supabase:
+   ```bash
+   supabase login
+   ```
+
+3. Vincular ao seu projeto Supabase:
+   ```bash
+   supabase link --project-ref <SEU_PROJECT_REF_ID>
+   ```
+
+---
+
+### Passo 1: Cadastrar os Segredos (Secrets) no Supabase
+
+Cadastre as variáveis server-side no ambiente do Supabase (NUNCA commitar valores reais no Git):
+
+```bash
+supabase secrets set \
+  SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOi..." \
+  META_APP_SECRET="sua_chave_secreta_do_app_meta" \
+  META_WEBHOOK_VERIFY_TOKEN="seu_token_de_verificacao_personalizado" \
+  WHATSAPP_ACCESS_TOKEN="seu_token_de_acesso_whatsapp" \
+  OPENAI_API_KEY="sk-..."
+```
+
+*(Ou configure diretamente pelo Dashboard em: **Project Settings > Edge Functions > Add Secret**)*
+
+---
+
+### Passo 2: Executar o Deploy das Edge Functions
+
+Execute o deploy individual de cada função:
+
+```bash
+# 1. Health Check
+supabase functions deploy health-check --no-verify-jwt
+
+# 2. Meta Webhook (Instagram Direct & Messenger)
+supabase functions deploy meta-webhook --no-verify-jwt
+
+# 3. WhatsApp Webhook
+supabase functions deploy whatsapp-webhook --no-verify-jwt
+
+# 4. AI Completion
+supabase functions deploy ai-completion --no-verify-jwt
+```
+
+Ou execute o script automatizado:
+```bash
+chmod +x supabase/deploy.sh
+./supabase/deploy.sh
+```
+
+---
+
+## 5. Verificação e Teste Pós-Deploy
+
+### 1. Testar Health Check:
+```bash
+curl -X GET "https://<SEU_PROJECT_REF>.supabase.co/functions/v1/health-check"
+```
+*Resposta esperada: `200 OK` com `{"status": "ok", "supabaseConnected": true}`*
+
+### 2. Testar Handshake do Webhook Meta:
+```bash
+curl -X GET "https://<SEU_PROJECT_REF>.supabase.co/functions/v1/meta-webhook?hub.mode=subscribe&hub.verify_token=SEU_TOKEN&hub.challenge=1158201244"
+```
+*Resposta esperada: `200 OK` com body `1158201244`*
