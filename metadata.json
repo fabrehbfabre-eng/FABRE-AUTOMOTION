@@ -1,0 +1,6 @@
+{
+  "name": "FABRE AUTOMATION",
+  "description": "Plataforma própria de automação inteligente de mensagens e atendimento para o Casal Fabre.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
