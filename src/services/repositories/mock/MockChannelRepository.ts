@@ -17,6 +17,31 @@ export class MockChannelRepository implements IChannelRepository {
     return INITIAL_INTEGRATIONS;
   }
 
+  async getConnection(channel: 'instagram' | 'messenger' | 'whatsapp'): Promise<ChannelConnection> {
+    const connections = await this.getConnections();
+    return connections[channel];
+  }
+
+  async updateConnection(
+    channel: 'instagram' | 'messenger' | 'whatsapp',
+    updates: Partial<ChannelConnection>
+  ): Promise<ChannelConnection> {
+    const current = await this.getConnections();
+    const updatedTarget: ChannelConnection = {
+      ...current[channel],
+      ...updates,
+      lastSyncAt: updates.lastSyncAt || new Date().toISOString(),
+    };
+
+    const updated = {
+      ...current,
+      [channel]: updatedTarget,
+    };
+
+    await storageService.setItem('connections', updated);
+    return updatedTarget;
+  }
+
   async updateConnectionStatus(
     channel: 'instagram' | 'messenger' | 'whatsapp',
     status: ChannelConnection['status'],

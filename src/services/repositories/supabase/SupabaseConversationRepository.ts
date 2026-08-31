@@ -144,6 +144,7 @@ export class SupabaseConversationRepository implements IConversationRepository {
       contentType: m.content_type as Message['contentType'],
       mediaUrl: m.media_url || undefined,
       status: m.status as Message['status'],
+      externalEventId: m.external_event_id || undefined,
       createdAt: m.created_at,
       metadata: (m.metadata as Message['metadata']) || undefined,
     }));
@@ -151,6 +152,10 @@ export class SupabaseConversationRepository implements IConversationRepository {
 
   async sendMessage(conversationId: string, content: string, sender: 'user' | 'bot' = 'user'): Promise<Message> {
     const client = getSupabaseClient();
+    if (!client) {
+      throw new Error('Supabase não configurado. Não é possível enviar mensagem pelo repositório Supabase.');
+    }
+
     const conv = await this.getConversationById(conversationId);
     const channel = conv?.channel || 'instagram';
 
@@ -163,45 +168,35 @@ export class SupabaseConversationRepository implements IConversationRepository {
       status: 'sent' as const,
     };
 
-    if (client) {
-      const { data, error } = await client
-        .from('messages')
-        .insert(newMessageRow)
-        .select()
-        .single();
+    const { data, error } = await client
+      .from('messages')
+      .insert(newMessageRow)
+      .select()
+      .single();
 
-      if (!error && data) {
-        // Update conversation timestamp
-        await client
-          .from('conversations')
-          .update({ updated_at: new Date().toISOString(), unread_count: 0 })
-          .eq('id', conversationId);
-
-        return {
-          id: data.id,
-          conversationId: data.conversation_id,
-          sender: data.sender as Message['sender'],
-          channel: data.channel as Message['channel'],
-          content: data.content,
-          contentType: data.content_type as Message['contentType'],
-          mediaUrl: data.media_url || undefined,
-          status: data.status as Message['status'],
-          createdAt: data.created_at,
-        };
-      }
+    if (error || !data) {
+      throw new Error(`Erro ao gravar mensagem no Supabase: ${error?.message || 'Falha desconhecida'}`);
     }
 
+    // Update conversation timestamp
+    await client
+      .from('conversations')
+      .update({ updated_at: new Date().toISOString(), unread_count: 0 })
+      .eq('id', conversationId);
+
     return {
-      id: `msg_${Date.now()}`,
-      conversationId,
-      sender,
-      channel,
-      content,
-      contentType: 'text',
-      status: 'sent',
-      createdAt: new Date().toISOString(),
+      id: data.id,
+      conversationId: data.conversation_id,
+      sender: data.sender as Message['sender'],
+      channel: data.channel as Message['channel'],
+      content: data.content,
+      contentType: data.content_type as Message['contentType'],
+      mediaUrl: data.media_url || undefined,
+      status: data.status as Message['status'],
+      createdAt: data.created_at,
     };
   }
+
 
   async toggleHandler(conversationId: string, handler: 'bot' | 'human'): Promise<Conversation> {
     const client = getSupabaseClient();
@@ -273,6 +268,152 @@ export class SupabaseConversationRepository implements IConversationRepository {
       totalConversations: totalConversations || 0,
       humanHandoffs: humanHandoffs || 0,
       automatedMessages: automatedMessages || 0,
+    };
+  }
+
+  async upsertProfile(data: {
+    name: string;
+    username?: string;
+    channel: ChannelType;
+    avatarUrl?: string;
+    phone?: string;
+    email?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<{ id: string; name: string }> {
+    const client = getSupabaseClient();
+    if (!client) throw new Error('Supabase client not configured');
+
+    const username = data.username || `@user_${Date.now().toString().slice(-4)}`;
+    
+    // Check if profile exists by username or metadata
+    const { data: existing } = await client
+      .from('profiles')
+      .select('id, name')
+      .eq('username', username)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      return { id: existing[0].id, name: existing[0].name };
+    }
+
+    const { data: inserted, error } = await client
+      .from('profiles')
+      .insert({
+        name: data.name,
+        username,
+        channel: data.channel,
+        avatar_url: data.avatarUrl || null,
+        phone: data.phone || null,
+        email: data.email || null,
+      })
+      .select('id, name')
+      .single();
+
+    if (error || !inserted) {
+      throw new Error(`Erro ao criar perfil no Supabase: ${error?.message || 'Falha desconhecida'}`);
+    }
+
+    return { id: inserted.id, name: inserted.name };
+  }
+
+  async findOrCreateConversation(data: {
+    contactId: string;
+    channel: ChannelType;
+    initialHandler?: 'bot' | 'human';
+  }): Promise<Conversation> {
+    const client = getSupabaseClient();
+    if (!client) throw new Error('Supabase client not configured');
+
+    // Check existing conversation
+    const { data: existing } = await client
+      .from('conversations')
+      .select('id')
+      .eq('contact_id', data.contactId)
+      .eq('channel', data.channel)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      const conv = await this.getConversationById(existing[0].id);
+      if (conv) return conv;
+    }
+
+    // Create conversation
+    const { data: inserted, error } = await client
+      .from('conversations')
+      .insert({
+        contact_id: data.contactId,
+        channel: data.channel,
+        handler: data.initialHandler || 'human',
+        status: 'open',
+        unread_count: 1,
+      })
+      .select('id')
+      .single();
+
+    if (error || !inserted) {
+      throw new Error(`Erro ao criar conversa no Supabase: ${error?.message || 'Falha desconhecida'}`);
+    }
+
+    const conv = await this.getConversationById(inserted.id);
+    if (!conv) throw new Error('Falha ao carregar conversa criada');
+    return conv;
+  }
+
+  async createMessage(data: {
+    conversationId: string;
+    sender: 'contact' | 'user' | 'bot' | 'system';
+    channel: ChannelType;
+    content: string;
+    contentType?: Message['contentType'];
+    mediaUrl?: string;
+    externalEventId?: string;
+    status?: 'sent' | 'delivered' | 'read' | 'failed';
+    metadata?: Record<string, any>;
+  }): Promise<Message> {
+    const client = getSupabaseClient();
+    if (!client) throw new Error('Supabase client not configured');
+
+    const { data: inserted, error } = await client
+      .from('messages')
+      .insert({
+        conversation_id: data.conversationId,
+        sender: data.sender,
+        channel: data.channel,
+        content: data.content,
+        content_type: data.contentType || 'text',
+        media_url: data.mediaUrl || null,
+        external_event_id: data.externalEventId || null,
+        status: data.status || 'delivered',
+        metadata: (data.metadata as any) || null,
+      })
+      .select()
+      .single();
+
+    if (error || !inserted) {
+      throw new Error(`Erro ao salvar mensagem no Supabase: ${error?.message || 'Falha desconhecida'}`);
+    }
+
+    // Update conversation timestamp
+    await client
+      .from('conversations')
+      .update({
+        updated_at: new Date().toISOString(),
+        unread_count: data.sender === 'contact' ? 1 : 0,
+      })
+      .eq('id', data.conversationId);
+
+    return {
+      id: inserted.id,
+      conversationId: inserted.conversation_id,
+      sender: inserted.sender as Message['sender'],
+      channel: inserted.channel as Message['channel'],
+      content: inserted.content,
+      contentType: inserted.content_type as Message['contentType'],
+      mediaUrl: inserted.media_url || undefined,
+      externalEventId: inserted.external_event_id || undefined,
+      status: inserted.status as Message['status'],
+      createdAt: inserted.created_at,
+      metadata: (inserted.metadata as Message['metadata']) || undefined,
     };
   }
 }

@@ -46,6 +46,52 @@ export class SupabaseChannelRepository implements IChannelRepository {
     return INITIAL_INTEGRATIONS;
   }
 
+  async getConnection(channel: 'instagram' | 'messenger' | 'whatsapp'): Promise<ChannelConnection> {
+    const connections = await this.getConnections();
+    return connections[channel];
+  }
+
+  async updateConnection(
+    channel: 'instagram' | 'messenger' | 'whatsapp',
+    updates: Partial<ChannelConnection>
+  ): Promise<ChannelConnection> {
+    const client = getSupabaseClient();
+    if (!client) {
+      const fallback = INITIAL_CONNECTIONS[channel];
+      Object.assign(fallback, updates);
+      return fallback;
+    }
+
+    const { data, error } = await client
+      .from('channel_connections')
+      .update({
+        status: updates.status,
+        status_message: updates.statusMessage || null,
+        account_handle: updates.accountHandle || null,
+        connected_at: updates.connectedAt || (updates.status === 'connected' ? new Date().toISOString() : null),
+        last_sync_at: updates.lastSyncAt || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('channel', channel)
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw new Error(`Erro ao atualizar conexão do canal: ${error?.message}`);
+    }
+
+    return {
+      id: data.id,
+      channel: data.channel as 'instagram' | 'messenger' | 'whatsapp',
+      name: data.name,
+      accountHandle: data.account_handle || undefined,
+      status: data.status as ChannelConnection['status'],
+      statusMessage: data.status_message || undefined,
+      connectedAt: data.connected_at || undefined,
+      lastSyncAt: data.last_sync_at || undefined,
+    };
+  }
+
   async updateConnectionStatus(
     channel: 'instagram' | 'messenger' | 'whatsapp',
     status: ChannelConnection['status'],

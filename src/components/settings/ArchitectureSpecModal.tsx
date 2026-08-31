@@ -1,11 +1,11 @@
 /**
  * FABRE AUTOMATION - Architecture Specification Modal
- * Release 2: Supabase Persistence Foundation
+ * Release 5: Instagram Real Message Ingestion
  */
 
 import React from 'react';
 import { Modal } from '../common/Modal';
-import { ShieldCheck, Layers, CheckCircle2, Database, Cpu, Bot } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, Cpu, Server, Lock, AlertTriangle, Radio } from 'lucide-react';
 
 interface ArchitectureSpecModalProps {
   isOpen: boolean;
@@ -20,59 +20,84 @@ export const ArchitectureSpecModal: React.FC<ArchitectureSpecModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Especificação Técnica • RELEASE 2"
-      subtitle="Fundação de Persistência Supabase PostgreSQL e Repositórios Desacoplados"
+      title="Especificação Técnica • RELEASE 5"
+      subtitle="Ingestão Real do Instagram Direct, Validação Webhook, Idempotência e Persistência no PostgreSQL"
       maxWidth="2xl"
     >
       <div className="space-y-5 text-xs text-neutral-300 max-h-[70vh] overflow-y-auto pr-1">
-        {/* Compliance Checklist */}
+        {/* Compliance Checklist Release 5 */}
         <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 space-y-3">
           <h4 className="font-bold text-neutral-100 flex items-center gap-2 font-display">
             <ShieldCheck size={16} className="text-emerald-400" />
-            Diretrizes Arquiteturais do Release 2
+            Critérios e Entregáveis do Release 5
           </h4>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
             <div className="flex items-center gap-2 text-emerald-400">
               <CheckCircle2 size={13} className="shrink-0" />
-              <span>Supabase PostgreSQL como banco oficial</span>
+              <span>Handshake GET (hub.verify_token) validado</span>
             </div>
             <div className="flex items-center gap-2 text-emerald-400">
               <CheckCircle2 size={13} className="shrink-0" />
-              <span>Padrão Repository & Provider desacoplado</span>
+              <span>Ingestão POST (x-hub-signature-256 HMAC-SHA256)</span>
             </div>
             <div className="flex items-center gap-2 text-emerald-400">
               <CheckCircle2 size={13} className="shrink-0" />
-              <span>Chaveamento automático (Supabase vs Mock Demo)</span>
+              <span>Normalização agnóstica para NormalizedIncomingMessage</span>
             </div>
             <div className="flex items-center gap-2 text-emerald-400">
               <CheckCircle2 size={13} className="shrink-0" />
-              <span>Row Level Security (RLS) habilitado em 11 tabelas</span>
+              <span>Idempotência garantida via external_event_id</span>
             </div>
             <div className="flex items-center gap-2 text-emerald-400">
               <CheckCircle2 size={13} className="shrink-0" />
-              <span>Chaves secretas isoladas em Edge Functions</span>
+              <span>Upsert de Perfil e Conversa no PostgreSQL</span>
             </div>
             <div className="flex items-center gap-2 text-emerald-400">
               <CheckCircle2 size={13} className="shrink-0" />
-              <span>Sanitização completa: nenhum dado falso oficial</span>
+              <span>Inserção de mensagem (sender: contact = Seguidor)</span>
+            </div>
+            <div className="flex items-center gap-2 text-emerald-400">
+              <CheckCircle2 size={13} className="shrink-0" />
+              <span>Sem resposta externa ao Instagram (Ingestão Somente)</span>
+            </div>
+            <div className="flex items-center gap-2 text-emerald-400">
+              <CheckCircle2 size={13} className="shrink-0" />
+              <span>Sem IA/OpenAI ativa e sem vazamento de secrets</span>
             </div>
           </div>
         </div>
 
-        {/* Modules Structure */}
-        <div className="space-y-2">
-          <h4 className="font-bold text-neutral-100 flex items-center gap-2 font-display">
-            <Layers size={15} className="text-cyan-400" />
-            Estrutura de Repositórios & Provedores
-          </h4>
+        {/* Security Isolation Hierarchy */}
+        <div className="p-4 rounded-xl bg-cyan-950/20 border border-cyan-800/40 space-y-2.5">
+          <div className="flex items-center gap-2 text-cyan-300 font-bold text-xs font-display">
+            <Lock size={15} className="text-cyan-400" />
+            <span>Matriz de Segurança e Secrets (Meta + Supabase)</span>
+          </div>
+          <div className="p-3 rounded-lg bg-neutral-950 border border-neutral-800 text-[11px] font-mono text-neutral-300 leading-relaxed">
+            <p className="text-cyan-400">CLIENTE / FRONTEND (Vite Bundle)</p>
+            <p className="text-neutral-500 pl-4">↳ Apenas VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY</p>
+            <p className="text-purple-400 pt-1">SERVER-SIDE / EDGE FUNCTIONS ENVIRONMENT</p>
+            <p className="text-neutral-500 pl-4">↳ META_APP_SECRET, META_ACCESS_TOKEN, META_WEBHOOK_VERIFY_TOKEN, SUPABASE_SERVICE_ROLE_KEY</p>
+          </div>
+        </div>
 
-          <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800/80 font-mono text-[11px] space-y-1.5 text-neutral-400 leading-relaxed">
-            <p><span className="text-emerald-400 font-bold">/supabase/schema.sql</span> • Schema relacional PostgreSQL com 11 tabelas, índices e RLS</p>
-            <p><span className="text-cyan-400 font-bold">/src/services/repositories</span> • Contratos agnósticos de repositório (IConversation, IAutomation, etc.)</p>
-            <p><span className="text-cyan-400 font-bold">/src/services/repositories/supabase</span> • Implementação oficial sobre o client Supabase</p>
-            <p><span className="text-cyan-400 font-bold">/src/services/repositories/mock</span> • Implementação em memória/localStorage para Modo Demo</p>
-            <p><span className="text-purple-400 font-bold">/supabase/functions</span> • Edge Functions Deno para Webhooks e AI Completion com chaves secretas</p>
+        {/* Flow Architecture Diagram */}
+        <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 space-y-2">
+          <h4 className="font-bold text-neutral-100 flex items-center gap-2 font-display">
+            <Radio size={15} className="text-pink-400" />
+            Pipeline de Ingestão Instagram Direct
+          </h4>
+          <div className="p-2.5 rounded-lg bg-neutral-900 border border-neutral-800 text-[11px] font-mono text-neutral-300 space-y-1">
+            <p className="text-pink-300">Instagram Direct (Seguidor envia DM)</p>
+            <p className="text-neutral-500">↓ Webhook HTTPS POST</p>
+            <p className="text-purple-300">Supabase Edge Function (/functions/v1/meta-webhook)</p>
+            <p className="text-neutral-500">↓ Validação HMAC-SHA256 (META_APP_SECRET)</p>
+            <p className="text-cyan-300">WebhookNormalizer (Extrai IGSID, Texto, Mídia e EventId)</p>
+            <p className="text-neutral-500">↓ Verificação de Idempotência (external_event_id UNIQUE)</p>
+            <p className="text-emerald-300">PostgreSQL (Profiles → Conversations → Messages: contact)</p>
+            <p className="text-neutral-500">↓ Consulta Reativa</p>
+            <p className="text-neutral-200">Caixa de Entrada Unificada (Inbox Operacional)</p>
           </div>
         </div>
 
@@ -84,7 +109,7 @@ export const ArchitectureSpecModal: React.FC<ArchitectureSpecModalProps> = ({
           </h4>
 
           <div className="space-y-2">
-            <div className="p-3 rounded-xl bg-neutral-950 border border-neutral-800 flex items-start gap-3">
+            <div className="p-3 rounded-xl bg-neutral-950 border border-neutral-800 flex items-start gap-3 opacity-60">
               <span className="px-2 py-0.5 rounded bg-neutral-800 text-neutral-400 font-mono font-bold text-[10px] shrink-0 mt-0.5">
                 RELEASE 1 (CONCLUÍDO)
               </span>
@@ -94,33 +119,43 @@ export const ArchitectureSpecModal: React.FC<ArchitectureSpecModalProps> = ({
               </div>
             </div>
 
-            <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/30 flex items-start gap-3">
-              <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold text-[10px] shrink-0 mt-0.5">
-                RELEASE 2 (ATUAL)
+            <div className="p-3 rounded-xl bg-neutral-950 border border-neutral-800 flex items-start gap-3 opacity-60">
+              <span className="px-2 py-0.5 rounded bg-neutral-800 text-neutral-400 font-mono font-bold text-[10px] shrink-0 mt-0.5">
+                RELEASE 2 (CONCLUÍDO)
               </span>
               <div className="text-[11px]">
                 <strong className="text-neutral-200 block">Supabase Persistence Foundation</strong>
-                <span className="text-neutral-400">Banco oficial Supabase PostgreSQL, schema relacional, padrão Repository/Provider, RLS e sanitização de dados.</span>
+                <span className="text-neutral-400">Schema relacional com 11 tabelas, Repository Pattern, RLS e chaveamento de provedores.</span>
               </div>
             </div>
 
-            <div className="p-3 rounded-xl bg-neutral-950 border border-neutral-800 flex items-start gap-3">
+            <div className="p-3 rounded-xl bg-neutral-950 border border-neutral-800 flex items-start gap-3 opacity-60">
               <span className="px-2 py-0.5 rounded bg-neutral-800 text-neutral-400 font-mono font-bold text-[10px] shrink-0 mt-0.5">
-                RELEASE 3
+                RELEASE 3 (CONCLUÍDO)
               </span>
               <div className="text-[11px]">
-                <strong className="text-neutral-200 block">Meta & WhatsApp Cloud APIs</strong>
-                <span className="text-neutral-400">Webhooks oficiais, envio de mensagens e integração com Instagram Direct, Messenger e WhatsApp.</span>
+                <strong className="text-neutral-200 block">Secure Backend Foundation</strong>
+                <span className="text-neutral-400">Isolamento de secrets, Edge Functions seguras, Webhook Normalizer e idempotência.</span>
               </div>
             </div>
 
-            <div className="p-3 rounded-xl bg-neutral-950 border border-neutral-800 flex items-start gap-3">
+            <div className="p-3 rounded-xl bg-neutral-950 border border-neutral-800 flex items-start gap-3 opacity-60">
               <span className="px-2 py-0.5 rounded bg-neutral-800 text-neutral-400 font-mono font-bold text-[10px] shrink-0 mt-0.5">
-                RELEASE 4
+                RELEASE 4 (CONCLUÍDO)
               </span>
               <div className="text-[11px]">
-                <strong className="text-neutral-200 block">AI Engine & Knowledge RAG</strong>
-                <span className="text-neutral-400">Embeddings vetoriais no Supabase (pgvector), OpenAI API e fallback inteligente para atendimento humano.</span>
+                <strong className="text-neutral-200 block">Supabase Activation & Backend Deployment</strong>
+                <span className="text-neutral-400">Validação de persistência real, teste granular de schema, desativação explícita de IA e auditoria de segurança.</span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-pink-950/20 border border-pink-500/30 flex items-start gap-3">
+              <span className="px-2 py-0.5 rounded bg-pink-500/20 text-pink-300 font-mono font-bold text-[10px] shrink-0 mt-0.5">
+                RELEASE 5 (ATUAL)
+              </span>
+              <div className="text-[11px]">
+                <strong className="text-neutral-200 block">Instagram Real Message Ingestion</strong>
+                <span className="text-neutral-400">Recebimento e normalização de mensagens reais do Instagram Direct via Meta Webhook, handshake seguro, idempotência estrita e exibição na Caixa de Entrada.</span>
               </div>
             </div>
           </div>
@@ -139,3 +174,4 @@ export const ArchitectureSpecModal: React.FC<ArchitectureSpecModalProps> = ({
     </Modal>
   );
 };
+

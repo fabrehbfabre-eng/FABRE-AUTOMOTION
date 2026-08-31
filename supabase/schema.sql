@@ -1,6 +1,6 @@
 -- =====================================================
 -- FABRE AUTOMATION - Supabase PostgreSQL Database Schema
--- Release 2: Supabase Persistence Foundation
+-- Release 3: Secure Backend Foundation & Persistence
 -- =====================================================
 
 -- 1. Enable Required Extensions
@@ -17,7 +17,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- =====================================================
--- 3. CORE TABLES
+-- 3. CORE TABLES (11 ENTITIES)
 -- =====================================================
 
 -- 3.1 PROFILES (Contacts, Followers & App Users)
@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS update_profiles_updated_at ON public.profiles;
 CREATE TRIGGER update_profiles_updated_at
     BEFORE UPDATE ON public.profiles
     FOR EACH ROW
@@ -59,6 +60,7 @@ CREATE TABLE IF NOT EXISTS public.conversations (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS update_conversations_updated_at ON public.conversations;
 CREATE TRIGGER update_conversations_updated_at
     BEFORE UPDATE ON public.conversations
     FOR EACH ROW
@@ -70,7 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_conversations_status ON public.conversations(stat
 CREATE INDEX IF NOT EXISTS idx_conversations_handler ON public.conversations(handler);
 CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON public.conversations(updated_at DESC);
 
--- 3.3 MESSAGES
+-- 3.3 MESSAGES (With external_event_id for Idempotency)
 CREATE TABLE IF NOT EXISTS public.messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id UUID NOT NULL REFERENCES public.conversations(id) ON DELETE CASCADE,
@@ -80,6 +82,7 @@ CREATE TABLE IF NOT EXISTS public.messages (
     content_type TEXT NOT NULL DEFAULT 'text' CHECK (content_type IN ('text', 'image', 'audio', 'quick_reply', 'template', 'system_event')),
     media_url TEXT,
     status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sending', 'sent', 'delivered', 'read', 'failed')),
+    external_event_id TEXT UNIQUE,
     metadata JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -87,6 +90,7 @@ CREATE TABLE IF NOT EXISTS public.messages (
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON public.messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON public.messages(created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_messages_sender ON public.messages(sender);
+CREATE INDEX IF NOT EXISTS idx_messages_external_event ON public.messages(external_event_id);
 
 -- 3.4 AUTOMATIONS
 CREATE TABLE IF NOT EXISTS public.automations (
@@ -101,6 +105,7 @@ CREATE TABLE IF NOT EXISTS public.automations (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS update_automations_updated_at ON public.automations;
 CREATE TRIGGER update_automations_updated_at
     BEFORE UPDATE ON public.automations
     FOR EACH ROW
@@ -153,6 +158,7 @@ CREATE TABLE IF NOT EXISTS public.knowledge_items (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS update_knowledge_items_updated_at ON public.knowledge_items;
 CREATE TRIGGER update_knowledge_items_updated_at
     BEFORE UPDATE ON public.knowledge_items
     FOR EACH ROW
@@ -177,6 +183,7 @@ CREATE TABLE IF NOT EXISTS public.channel_connections (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS update_channel_connections_updated_at ON public.channel_connections;
 CREATE TRIGGER update_channel_connections_updated_at
     BEFORE UPDATE ON public.channel_connections
     FOR EACH ROW
@@ -212,13 +219,19 @@ CREATE TABLE IF NOT EXISTS public.contact_notes (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS update_contact_notes_updated_at ON public.contact_notes;
+CREATE TRIGGER update_contact_notes_updated_at
+    BEFORE UPDATE ON public.contact_notes
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 CREATE INDEX IF NOT EXISTS idx_contact_notes_contact ON public.contact_notes(contact_id);
 
 -- =====================================================
 -- 4. ROW LEVEL SECURITY (RLS) POLICIES
 -- =====================================================
 
--- Enable RLS on all tables
+-- Enable RLS on all 11 tables
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
@@ -231,75 +244,74 @@ ALTER TABLE public.contact_tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.contact_tag_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.contact_notes ENABLE ROW LEVEL SECURITY;
 
--- Default Policies for App Operators (Authenticated / Public Anon with Token in Dev)
--- 4.1 Profiles Policy
-CREATE POLICY "Allow read profiles" ON public.profiles
-    FOR SELECT USING (true);
+-- 4.1 Profiles Policies
+DROP POLICY IF EXISTS "Allow read profiles" ON public.profiles;
+CREATE POLICY "Allow read profiles" ON public.profiles FOR SELECT USING (true);
 
-CREATE POLICY "Allow insert profiles" ON public.profiles
-    FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow insert profiles" ON public.profiles;
+CREATE POLICY "Allow insert profiles" ON public.profiles FOR INSERT WITH CHECK (true);
 
-CREATE POLICY "Allow update profiles" ON public.profiles
-    FOR UPDATE USING (true);
+DROP POLICY IF EXISTS "Allow update profiles" ON public.profiles;
+CREATE POLICY "Allow update profiles" ON public.profiles FOR UPDATE USING (true);
 
--- 4.2 Conversations Policy
-CREATE POLICY "Allow read conversations" ON public.conversations
-    FOR SELECT USING (true);
+-- 4.2 Conversations Policies
+DROP POLICY IF EXISTS "Allow read conversations" ON public.conversations;
+CREATE POLICY "Allow read conversations" ON public.conversations FOR SELECT USING (true);
 
-CREATE POLICY "Allow insert conversations" ON public.conversations
-    FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow insert conversations" ON public.conversations;
+CREATE POLICY "Allow insert conversations" ON public.conversations FOR INSERT WITH CHECK (true);
 
-CREATE POLICY "Allow update conversations" ON public.conversations
-    FOR UPDATE USING (true);
+DROP POLICY IF EXISTS "Allow update conversations" ON public.conversations;
+CREATE POLICY "Allow update conversations" ON public.conversations FOR UPDATE USING (true);
 
--- 4.3 Messages Policy
-CREATE POLICY "Allow read messages" ON public.messages
-    FOR SELECT USING (true);
+-- 4.3 Messages Policies
+DROP POLICY IF EXISTS "Allow read messages" ON public.messages;
+CREATE POLICY "Allow read messages" ON public.messages FOR SELECT USING (true);
 
-CREATE POLICY "Allow insert messages" ON public.messages
-    FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow insert messages" ON public.messages;
+CREATE POLICY "Allow insert messages" ON public.messages FOR INSERT WITH CHECK (true);
 
-CREATE POLICY "Allow update messages" ON public.messages
-    FOR UPDATE USING (true);
+DROP POLICY IF EXISTS "Allow update messages" ON public.messages;
+CREATE POLICY "Allow update messages" ON public.messages FOR UPDATE USING (true);
 
--- 4.4 Automations Policy
-CREATE POLICY "Allow read automations" ON public.automations
-    FOR SELECT USING (true);
+-- 4.4 Automations Policies
+DROP POLICY IF EXISTS "Allow read automations" ON public.automations;
+CREATE POLICY "Allow read automations" ON public.automations FOR SELECT USING (true);
 
-CREATE POLICY "Allow modify automations" ON public.automations
-    FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow modify automations" ON public.automations;
+CREATE POLICY "Allow modify automations" ON public.automations FOR ALL USING (true);
 
--- 4.5 Automation Triggers Policy
-CREATE POLICY "Allow all automation triggers" ON public.automation_triggers
-    FOR ALL USING (true);
+-- 4.5 Automation Triggers Policies
+DROP POLICY IF EXISTS "Allow all automation triggers" ON public.automation_triggers;
+CREATE POLICY "Allow all automation triggers" ON public.automation_triggers FOR ALL USING (true);
 
--- 4.6 Automation Actions Policy
-CREATE POLICY "Allow all automation actions" ON public.automation_actions
-    FOR ALL USING (true);
+-- 4.6 Automation Actions Policies
+DROP POLICY IF EXISTS "Allow all automation actions" ON public.automation_actions;
+CREATE POLICY "Allow all automation actions" ON public.automation_actions FOR ALL USING (true);
 
--- 4.7 Knowledge Items Policy
-CREATE POLICY "Allow read knowledge" ON public.knowledge_items
-    FOR SELECT USING (true);
+-- 4.7 Knowledge Items Policies
+DROP POLICY IF EXISTS "Allow read knowledge" ON public.knowledge_items;
+CREATE POLICY "Allow read knowledge" ON public.knowledge_items FOR SELECT USING (true);
 
-CREATE POLICY "Allow modify knowledge" ON public.knowledge_items
-    FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow modify knowledge" ON public.knowledge_items;
+CREATE POLICY "Allow modify knowledge" ON public.knowledge_items FOR ALL USING (true);
 
--- 4.8 Channel Connections Policy
-CREATE POLICY "Allow read channel connections" ON public.channel_connections
-    FOR SELECT USING (true);
+-- 4.8 Channel Connections Policies
+DROP POLICY IF EXISTS "Allow read channel connections" ON public.channel_connections;
+CREATE POLICY "Allow read channel connections" ON public.channel_connections FOR SELECT USING (true);
 
-CREATE POLICY "Allow modify channel connections" ON public.channel_connections
-    FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow modify channel connections" ON public.channel_connections;
+CREATE POLICY "Allow modify channel connections" ON public.channel_connections FOR ALL USING (true);
 
 -- 4.9 Tags Policies
-CREATE POLICY "Allow all contact tags" ON public.contact_tags
-    FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow all contact tags" ON public.contact_tags;
+CREATE POLICY "Allow all contact tags" ON public.contact_tags FOR ALL USING (true);
 
-CREATE POLICY "Allow all tag assignments" ON public.contact_tag_assignments
-    FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow all tag assignments" ON public.contact_tag_assignments;
+CREATE POLICY "Allow all tag assignments" ON public.contact_tag_assignments FOR ALL USING (true);
 
-CREATE POLICY "Allow all contact notes" ON public.contact_notes
-    FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow all contact notes" ON public.contact_notes;
+CREATE POLICY "Allow all contact notes" ON public.contact_notes FOR ALL USING (true);
 
 -- =====================================================
 -- 5. INITIAL CHANNEL ENTRIES (Awaiting Connection)

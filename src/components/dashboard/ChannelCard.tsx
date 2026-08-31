@@ -23,21 +23,21 @@ export const ChannelCard: React.FC<ChannelCardProps> = ({
   > = {
     instagram: {
       title: 'Instagram Direct',
-      subtitle: 'Comentários em posts, stories e DMs automáticas',
-      protocol: 'Meta Graph API (Webhooks & Send API)',
-      targetRelease: 'Release 2',
+      subtitle: 'Recebimento de mensagens reais via Webhook Meta e persistência no Supabase',
+      protocol: 'Meta Graph API (Webhooks /functions/v1/meta-webhook)',
+      targetRelease: 'Release 5 (Ingestão Ativa)',
     },
     messenger: {
       title: 'Facebook Messenger',
       subtitle: 'Conversas da página oficial do Casal Fabre',
       protocol: 'Meta Messenger Platform API',
-      targetRelease: 'Release 2',
+      targetRelease: 'Release 6 (Planejado)',
     },
     whatsapp: {
       title: 'WhatsApp Business',
       subtitle: 'Cloud API oficial com modelos e transbordo humano',
       protocol: 'WhatsApp Business Cloud API v21.0',
-      targetRelease: 'Release 2',
+      targetRelease: 'Release 7 (Planejado)',
     },
   };
 

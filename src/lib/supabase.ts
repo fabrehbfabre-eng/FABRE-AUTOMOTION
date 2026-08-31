@@ -63,53 +63,91 @@ export const getSupabaseClient = (): SupabaseClient<Database> | null => {
 
 export const supabase = getSupabaseClient();
 
-/**
- * Test connectivity with Supabase database
- */
-export async function testSupabaseConnection(): Promise<{
+export type SupabaseConnectionStatus = 'connected' | 'schema_pending' | 'error' | 'demo';
+
+export interface SupabaseTestResult {
+  status: SupabaseConnectionStatus;
   success: boolean;
+  schemaApplied: boolean;
   message: string;
   details?: Record<string, unknown>;
-}> {
+}
+
+/**
+ * Real connectivity and schema test with Supabase database.
+ * Strictly avoids mock simulations when credentials are provided.
+ */
+export async function testSupabaseConnection(): Promise<SupabaseTestResult> {
   if (!isSupabaseConfigured()) {
     return {
+      status: 'demo',
       success: false,
-      message: 'Supabase não configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY no arquivo .env.',
+      schemaApplied: false,
+      message: 'Supabase não configurado. Aplicação operando em Modo Demonstração (Demo).',
     };
   }
 
   const client = getSupabaseClient();
   if (!client) {
     return {
+      status: 'error',
       success: false,
-      message: 'Falha ao instanciar cliente Supabase.',
+      schemaApplied: false,
+      message: 'Falha ao inicializar o cliente Supabase.',
     };
   }
 
   try {
+    // Perform a real query against the channel_connections table
     const { data, error } = await client
       .from('channel_connections')
-      .select('count')
+      .select('channel, status')
       .limit(1);
 
     if (error) {
+      const isMissingTable = 
+        error.code === '42P01' || 
+        error.code === 'PGRST204' ||
+        error.code === 'PGRST205' ||
+        error.message?.toLowerCase().includes('does not exist') ||
+        error.message?.toLowerCase().includes('not found') ||
+        error.message?.toLowerCase().includes('relation "channel_connections"');
+
+      if (isMissingTable) {
+        return {
+          status: 'schema_pending',
+          success: false,
+          schemaApplied: false,
+          message: 'Supabase conectado, schema ainda não aplicado.',
+          details: { error: error.message, code: error.code },
+        };
+      }
+
       return {
+        status: 'error',
         success: false,
-        message: `Erro na consulta Supabase: ${error.message} (${error.code || 'sem código'}). Verifique se o schema.sql foi executado.`,
-        details: { error },
+        schemaApplied: false,
+        message: `Erro na consulta Supabase: ${error.message} (${error.code || 'sem código'}).`,
+        details: { error: error.message, code: error.code, hint: error.hint },
       };
     }
 
     return {
+      status: 'connected',
       success: true,
-      message: 'Conexão com o Supabase PostgreSQL estabelecida com sucesso!',
-      details: { data },
+      schemaApplied: true,
+      message: 'Supabase conectado e operacional (Schema validado).',
+      details: { rowCount: data ? data.length : 0 },
     };
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     return {
+      status: 'error',
       success: false,
-      message: `Exceção de rede ou configuração ao conectar no Supabase: ${errorMessage}`,
+      schemaApplied: false,
+      message: `Exceção de rede ao conectar no Supabase: ${errorMessage}`,
+      details: { error: errorMessage },
     };
   }
 }
+

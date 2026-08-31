@@ -7,7 +7,10 @@ export type ChannelType = 'instagram' | 'messenger' | 'whatsapp';
 
 export type ConnectionStatus = 
   | 'disconnected' 
-  | 'awaiting_connection' 
+  | 'awaiting_credentials'
+  | 'awaiting_connection'
+  | 'configured'
+  | 'webhook_pending'
   | 'connecting' 
   | 'connected' 
   | 'error';
@@ -77,6 +80,7 @@ export interface Message {
   contentType: MessageContentType;
   mediaUrl?: string;
   status: MessageStatus;
+  externalEventId?: string;
   createdAt: string;
   metadata?: {
     automationId?: string;

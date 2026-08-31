@@ -1,11 +1,11 @@
 /**
  * FABRE AUTOMATION - Supabase Schema & Migration Modal
- * Release 2: Supabase Persistence Foundation
+ * Release 3: Secure Backend Foundation
  */
 
 import React, { useState } from 'react';
 import { Modal } from '../common/Modal';
-import { Database, Copy, Check, Terminal, ShieldCheck, Activity, Key, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Database, Copy, Check, Terminal, Activity, Key, CheckCircle2, AlertCircle } from 'lucide-react';
 import { testSupabaseConnection, isSupabaseConfigured, getSupabaseConfig } from '../../lib/supabase';
 
 interface SupabaseSchemaModalProps {
@@ -15,7 +15,7 @@ interface SupabaseSchemaModalProps {
 
 const SQL_SCHEMA_CONTENT = `-- =====================================================
 -- FABRE AUTOMATION - Supabase PostgreSQL Database Schema
--- Release 2: Supabase Persistence Foundation
+-- Release 3: Secure Backend Foundation & Persistence
 -- =====================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS update_profiles_updated_at ON public.profiles;
+CREATE TRIGGER update_profiles_updated_at
+    BEFORE UPDATE ON public.profiles
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 -- 2. CONVERSATIONS
 CREATE TABLE IF NOT EXISTS public.conversations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -59,7 +65,13 @@ CREATE TABLE IF NOT EXISTS public.conversations (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 3. MESSAGES
+DROP TRIGGER IF EXISTS update_conversations_updated_at ON public.conversations;
+CREATE TRIGGER update_conversations_updated_at
+    BEFORE UPDATE ON public.conversations
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- 3. MESSAGES (With external_event_id for Idempotency)
 CREATE TABLE IF NOT EXISTS public.messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id UUID NOT NULL REFERENCES public.conversations(id) ON DELETE CASCADE,
@@ -69,6 +81,7 @@ CREATE TABLE IF NOT EXISTS public.messages (
     content_type TEXT NOT NULL DEFAULT 'text' CHECK (content_type IN ('text', 'image', 'audio', 'quick_reply', 'template', 'system_event')),
     media_url TEXT,
     status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sending', 'sent', 'delivered', 'read', 'failed')),
+    external_event_id TEXT UNIQUE,
     metadata JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -85,6 +98,12 @@ CREATE TABLE IF NOT EXISTS public.automations (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+DROP TRIGGER IF EXISTS update_automations_updated_at ON public.automations;
+CREATE TRIGGER update_automations_updated_at
+    BEFORE UPDATE ON public.automations
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
 
 -- 5. AUTOMATION TRIGGERS & ACTIONS
 CREATE TABLE IF NOT EXISTS public.automation_triggers (
@@ -123,6 +142,12 @@ CREATE TABLE IF NOT EXISTS public.knowledge_items (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS update_knowledge_items_updated_at ON public.knowledge_items;
+CREATE TRIGGER update_knowledge_items_updated_at
+    BEFORE UPDATE ON public.knowledge_items
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 -- 7. CHANNEL CONNECTIONS
 CREATE TABLE IF NOT EXISTS public.channel_connections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -137,6 +162,12 @@ CREATE TABLE IF NOT EXISTS public.channel_connections (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+DROP TRIGGER IF EXISTS update_channel_connections_updated_at ON public.channel_connections;
+CREATE TRIGGER update_channel_connections_updated_at
+    BEFORE UPDATE ON public.channel_connections
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
 
 -- 8. CONTACT TAGS & NOTES
 CREATE TABLE IF NOT EXISTS public.contact_tags (
@@ -163,7 +194,13 @@ CREATE TABLE IF NOT EXISTS public.contact_notes (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Enable RLS
+DROP TRIGGER IF EXISTS update_contact_notes_updated_at ON public.contact_notes;
+CREATE TRIGGER update_contact_notes_updated_at
+    BEFORE UPDATE ON public.contact_notes
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- 9. ROW LEVEL SECURITY (RLS)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
@@ -176,17 +213,54 @@ ALTER TABLE public.contact_tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.contact_tag_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.contact_notes ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow all public in dev" ON public.profiles FOR ALL USING (true);
-CREATE POLICY "Allow all public in dev" ON public.conversations FOR ALL USING (true);
-CREATE POLICY "Allow all public in dev" ON public.messages FOR ALL USING (true);
-CREATE POLICY "Allow all public in dev" ON public.automations FOR ALL USING (true);
-CREATE POLICY "Allow all public in dev" ON public.automation_triggers FOR ALL USING (true);
-CREATE POLICY "Allow all public in dev" ON public.automation_actions FOR ALL USING (true);
-CREATE POLICY "Allow all public in dev" ON public.knowledge_items FOR ALL USING (true);
-CREATE POLICY "Allow all public in dev" ON public.channel_connections FOR ALL USING (true);
-CREATE POLICY "Allow all public in dev" ON public.contact_tags FOR ALL USING (true);
-CREATE POLICY "Allow all public in dev" ON public.contact_tag_assignments FOR ALL USING (true);
-CREATE POLICY "Allow all public in dev" ON public.contact_notes FOR ALL USING (true);`;
+DROP POLICY IF EXISTS "Allow read profiles" ON public.profiles;
+CREATE POLICY "Allow read profiles" ON public.profiles FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow insert profiles" ON public.profiles;
+CREATE POLICY "Allow insert profiles" ON public.profiles FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow update profiles" ON public.profiles;
+CREATE POLICY "Allow update profiles" ON public.profiles FOR UPDATE USING (true);
+
+DROP POLICY IF EXISTS "Allow read conversations" ON public.conversations;
+CREATE POLICY "Allow read conversations" ON public.conversations FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow insert conversations" ON public.conversations;
+CREATE POLICY "Allow insert conversations" ON public.conversations FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow update conversations" ON public.conversations;
+CREATE POLICY "Allow update conversations" ON public.conversations FOR UPDATE USING (true);
+
+DROP POLICY IF EXISTS "Allow read messages" ON public.messages;
+CREATE POLICY "Allow read messages" ON public.messages FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow insert messages" ON public.messages;
+CREATE POLICY "Allow insert messages" ON public.messages FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow update messages" ON public.messages;
+CREATE POLICY "Allow update messages" ON public.messages FOR UPDATE USING (true);
+
+DROP POLICY IF EXISTS "Allow read automations" ON public.automations;
+CREATE POLICY "Allow read automations" ON public.automations FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow modify automations" ON public.automations;
+CREATE POLICY "Allow modify automations" ON public.automations FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Allow all automation triggers" ON public.automation_triggers;
+CREATE POLICY "Allow all automation triggers" ON public.automation_triggers FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Allow all automation actions" ON public.automation_actions;
+CREATE POLICY "Allow all automation actions" ON public.automation_actions FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Allow read knowledge" ON public.knowledge_items;
+CREATE POLICY "Allow read knowledge" ON public.knowledge_items FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow modify knowledge" ON public.knowledge_items;
+CREATE POLICY "Allow modify knowledge" ON public.knowledge_items FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Allow read channel connections" ON public.channel_connections;
+CREATE POLICY "Allow read channel connections" ON public.channel_connections FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow modify channel connections" ON public.channel_connections;
+CREATE POLICY "Allow modify channel connections" ON public.channel_connections FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Allow all contact tags" ON public.contact_tags;
+CREATE POLICY "Allow all contact tags" ON public.contact_tags FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow all tag assignments" ON public.contact_tag_assignments;
+CREATE POLICY "Allow all tag assignments" ON public.contact_tag_assignments FOR ALL USING (true);
+DROP POLICY IF EXISTS "Allow all contact notes" ON public.contact_notes;
+CREATE POLICY "Allow all contact notes" ON public.contact_notes FOR ALL USING (true);`;
 
 export const SupabaseSchemaModal: React.FC<SupabaseSchemaModalProps> = ({ isOpen, onClose }) => {
   const [copied, setCopied] = useState(false);
@@ -218,7 +292,7 @@ export const SupabaseSchemaModal: React.FC<SupabaseSchemaModalProps> = ({ isOpen
       isOpen={isOpen}
       onClose={onClose}
       title="Supabase PostgreSQL Persistence & Schema"
-      subtitle="Estrutura de 11 tabelas, índices e políticas de Row Level Security (RLS)"
+      subtitle="Estrutura de 11 tabelas, índices de performance e idempotência com RLS"
       maxWidth="2xl"
     >
       <div className="space-y-5 max-h-[75vh] overflow-y-auto pr-1">

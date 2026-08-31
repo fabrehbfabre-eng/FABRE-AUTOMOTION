@@ -248,4 +248,103 @@ export class MockConversationRepository implements IConversationRepository {
       automatedMessages: 12,
     };
   }
+
+  async upsertProfile(data: {
+    name: string;
+    username?: string;
+    channel: ChannelType;
+    avatarUrl?: string;
+    phone?: string;
+    email?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<{ id: string; name: string }> {
+    const profileId = `profile_mock_${data.username || Date.now()}`;
+    return {
+      id: profileId,
+      name: data.name,
+    };
+  }
+
+  async findOrCreateConversation(data: {
+    contactId: string;
+    channel: ChannelType;
+    initialHandler?: 'bot' | 'human';
+  }): Promise<Conversation> {
+    const conversations = await this.getConversations();
+    const existing = conversations.find(c => c.contactId === data.contactId || c.contact.id === data.contactId);
+    if (existing) return existing;
+
+    const newConv: Conversation = {
+      id: `conv_ig_${Date.now()}`,
+      contactId: data.contactId,
+      contact: {
+        id: data.contactId,
+        name: `Seguidor IG (${data.contactId.slice(-4)})`,
+        username: `@ig_user`,
+        channel: data.channel,
+        tags: [data.channel],
+        createdAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString(),
+      },
+      channel: data.channel,
+      status: 'open',
+      handler: data.initialHandler || 'human',
+      unreadCount: 1,
+      tags: [data.channel],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const updated = [newConv, ...conversations];
+    await storageService.setItem('conversations', updated);
+    return newConv;
+  }
+
+  async createMessage(data: {
+    conversationId: string;
+    sender: 'contact' | 'user' | 'bot' | 'system';
+    channel: ChannelType;
+    content: string;
+    contentType?: Message['contentType'];
+    mediaUrl?: string;
+    externalEventId?: string;
+    status?: 'sent' | 'delivered' | 'read' | 'failed';
+    metadata?: Record<string, any>;
+  }): Promise<Message> {
+    const newMsg: Message = {
+      id: `msg_ig_${Date.now()}`,
+      conversationId: data.conversationId,
+      sender: data.sender,
+      channel: data.channel,
+      content: data.content,
+      contentType: data.contentType || 'text',
+      mediaUrl: data.mediaUrl,
+      externalEventId: data.externalEventId,
+      status: data.status || 'delivered',
+      createdAt: new Date().toISOString(),
+      metadata: data.metadata,
+    };
+
+    const storedMessages = (await storageService.getItem<Record<string, Message[]>>('messages_map')) || SAMPLE_MESSAGES;
+    const currentList = storedMessages[data.conversationId] || [];
+    storedMessages[data.conversationId] = [...currentList, newMsg];
+    await storageService.setItem('messages_map', storedMessages);
+
+    // Update conversation
+    const conversations = await this.getConversations();
+    const updated = conversations.map(c => {
+      if (c.id === data.conversationId) {
+        return {
+          ...c,
+          lastMessage: newMsg,
+          updatedAt: newMsg.createdAt,
+          unreadCount: (c.unreadCount || 0) + 1,
+        };
+      }
+      return c;
+    });
+    await storageService.setItem('conversations', updated);
+
+    return newMsg;
+  }
 }

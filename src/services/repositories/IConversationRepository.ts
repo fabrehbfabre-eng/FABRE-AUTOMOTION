@@ -13,4 +13,9 @@ export interface IConversationRepository {
   toggleHandler(conversationId: string, handler: 'bot' | 'human'): Promise<Conversation>;
   updateStatus(conversationId: string, status: Conversation['status']): Promise<Conversation>;
   getStats(): Promise<{ totalConversations: number; humanHandoffs: number; automatedMessages: number }>;
+  
+  // Ingestion Methods (Release 5)
+  upsertProfile(data: { name: string; username?: string; channel: ChannelType; avatarUrl?: string; phone?: string; email?: string; metadata?: Record<string, unknown> }): Promise<{ id: string; name: string }>;
+  findOrCreateConversation(data: { contactId: string; channel: ChannelType; initialHandler?: 'bot' | 'human' }): Promise<Conversation>;
+  createMessage(data: { conversationId: string; sender: 'contact' | 'user' | 'bot' | 'system'; channel: ChannelType; content: string; contentType?: Message['contentType']; mediaUrl?: string; externalEventId?: string; status?: 'sent' | 'delivered' | 'read' | 'failed'; metadata?: Record<string, any> }): Promise<Message>;
 }

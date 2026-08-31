@@ -116,6 +116,7 @@ export interface Database {
           content_type: 'text' | 'image' | 'audio' | 'quick_reply' | 'template' | 'system_event';
           media_url: string | null;
           status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+          external_event_id: string | null;
           metadata: Json | null;
           created_at: string;
         };
@@ -128,6 +129,7 @@ export interface Database {
           content_type?: 'text' | 'image' | 'audio' | 'quick_reply' | 'template' | 'system_event';
           media_url?: string | null;
           status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+          external_event_id?: string | null;
           metadata?: Json | null;
           created_at?: string;
         };
@@ -140,6 +142,7 @@ export interface Database {
           content_type?: 'text' | 'image' | 'audio' | 'quick_reply' | 'template' | 'system_event';
           media_url?: string | null;
           status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+          external_event_id?: string | null;
           metadata?: Json | null;
           created_at?: string;
         };

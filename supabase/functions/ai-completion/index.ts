@@ -1,47 +1,61 @@
 // Supabase Edge Function: ai-completion
-// Secure Server-side OpenAI completion and RAG Knowledge Retrieval
+// Release 4: Supabase Activation & Backend Deployment
+// Structure prepared for future AI activation
+// IMPORTANT: AI engine is explicitly deactivated in Release 4 (no OpenAI API calls, no RAG, no embeddings)
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { handleCors } from "../_shared/cors.ts";
+import { createErrorResponse, createSuccessResponse } from "../_shared/errors.ts";
+import { logSecure } from "../_shared/logger.ts";
 
-const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+serve(async (req: Request) => {
+  const startTime = Date.now();
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  // 1. CORS Pre-flight
+  const corsResponse = handleCors(req);
+  if (corsResponse) return corsResponse;
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-      },
-    });
+  if (req.method !== "POST") {
+    return createErrorResponse(405, "Method not allowed", "METHOD_NOT_ALLOWED");
   }
 
   try {
-    const { prompt, conversationId } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const { prompt } = body || {};
 
-    if (!prompt) {
-      return new Response(JSON.stringify({ error: "Prompt is required" }), { status: 400 });
+    if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
+      return createErrorResponse(400, "Field 'prompt' is required and must be non-empty", "INVALID_INPUT");
     }
 
-    // In Release 4: Query OpenAI API using server-side OPENAI_API_KEY
-    return new Response(
-      JSON.stringify({
-        response: `[AI Completion Draft]: Processed prompt "${prompt}"`,
-        confidence: 0.95,
-      }),
+    logSecure("info", {
+      service: "ai-completion",
+      action: "check_status",
+      status: "deactivated",
+      durationMs: Date.now() - startTime,
+      message: "AI service request received but AI is explicitly disabled in Release 4",
+    });
+
+    // In Release 4: Explicit non-activated response (no fake simulation, no API call)
+    return createSuccessResponse(
       {
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        },
-      }
+        enabled: false,
+        status: "AI_SERVICE_DISABLED",
+        message: "AI service not enabled in current release.",
+        release: "RELEASE 4 | SUPABASE ACTIVATION",
+        latencyMs: Date.now() - startTime,
+      },
+      200
     );
   } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    return new Response(JSON.stringify({ error: errorMessage }), { status: 500 });
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    logSecure("error", {
+      service: "ai-completion",
+      action: "handle_request",
+      status: "error",
+      durationMs: Date.now() - startTime,
+      message: `Error in AI completion endpoint: ${errorMsg}`,
+    });
+    return createErrorResponse(500, "Failed to process AI completion request", "INTERNAL_ERROR");
   }
 });
+

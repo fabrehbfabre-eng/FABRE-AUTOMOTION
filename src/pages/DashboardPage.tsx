@@ -52,7 +52,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   return (
     <div className="p-6 lg:p-8 space-y-8 max-w-7xl mx-auto">
-      {/* Release 2 Architecture & Supabase Status Banner */}
+      {/* Release 3 Secure Backend & Architecture Status Banner */}
       <ArchitectureBanner
         onLearnMore={onOpenArchitectureModal}
         onOpenSchemaModal={onOpenSchemaModal}

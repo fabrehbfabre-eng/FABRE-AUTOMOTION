@@ -1,6 +1,7 @@
 {
   "name": "FABRE AUTOMATION",
-  "description": "Plataforma própria de automação inteligente de mensagens e atendimento para o Casal Fabre.",
+  "description": "Plataforma de automação multicanal e atendimento com persistência oficial em Supabase PostgreSQL.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
+

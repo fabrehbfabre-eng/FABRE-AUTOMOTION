@@ -185,11 +185,13 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
 
       {/* Messages Feed */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
-        {/* Release 1 Notice */}
+        {/* Release 5 Notice */}
         <div className="flex justify-center">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-mono bg-neutral-900/80 border border-neutral-800 text-neutral-400">
             <Sparkles size={11} className="text-cyan-400" />
-            Visualização de Conversa • Release 1 (Dados de Demonstração Estruturados)
+            {conversation.channel === 'instagram' 
+              ? 'Canal Instagram Direct • Ingestão Real com Persistência Supabase (Release 5)'
+              : 'Visualização de Conversa Unificada • FABRE AUTOMATION'}
           </div>
         </div>
 
@@ -215,7 +217,11 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
             >
               {/* Sender Label */}
               <span className="text-[10px] font-mono text-neutral-500 mb-1 px-1 flex items-center gap-1">
-                {isContact && conversation.contact.name}
+                {isContact && (
+                  <span className="text-neutral-300 font-semibold">
+                    {conversation.contact.name}
+                  </span>
+                )}
                 {isBot && (
                   <>
                     <Bot size={11} className="text-cyan-400" />
@@ -227,6 +233,11 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
                     <UserCheck size={11} className="text-indigo-400" />
                     <span>Atendente Fabre</span>
                   </>
+                )}
+                {msg.externalEventId && (
+                  <span className="text-[9px] text-neutral-600 bg-neutral-950 px-1 rounded border border-neutral-800" title={`ID do Evento: ${msg.externalEventId}`}>
+                    ID: {msg.externalEventId.slice(-8)}
+                  </span>
                 )}
                 <span>• {new Date(msg.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
               </span>
@@ -241,6 +252,18 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
                     : 'bg-indigo-950/50 text-indigo-100 border border-indigo-800/50 rounded-tr-sm'
                 }`}
               >
+                {/* Media Preview if attached */}
+                {msg.contentType === 'image' && msg.mediaUrl && (
+                  <div className="mb-2 rounded-lg overflow-hidden border border-neutral-700 max-w-xs">
+                    <img 
+                      src={msg.mediaUrl} 
+                      alt="Mídia recebida" 
+                      className="w-full h-auto object-cover max-h-48"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                )}
+
                 <p className="whitespace-pre-wrap">{msg.content}</p>
 
                 {msg.metadata?.automationName && (
@@ -264,16 +287,28 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Message Composer */}
-      <div className="p-4 border-t border-neutral-800/80 bg-neutral-950/90">
+      {/* Message Composer & Release 5 Notice */}
+      <div className="p-4 border-t border-neutral-800/80 bg-neutral-950/90 space-y-2">
+        {conversation.channel === 'instagram' && (
+          <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-400">
+            <span className="flex items-center gap-1.5">
+              <Info size={12} className="text-cyan-400" />
+              <span><strong>Release 5:</strong> Ingestão real ativa. Respostas externas ao Instagram desativadas até o Release 6.</span>
+            </span>
+            <span className="font-mono text-[10px] text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/40">
+              Ingestão Somente
+            </span>
+          </div>
+        )}
+
         <form onSubmit={handleSend} className="flex items-center gap-2">
           <div className="flex-1 relative">
             <input
               type="text"
               placeholder={
                 isHuman
-                  ? 'Digite uma mensagem como atendente humano...'
-                  : 'Digite para testar envio manual ou troque para Humano acima...'
+                  ? 'Digite uma mensagem interna ou resposta do operador humano...'
+                  : 'Digite para registrar mensagem ou troque para Humano acima...'
               }
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
@@ -290,7 +325,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
                 : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
             }`}
           >
-            <span>Enviar</span>
+            <span>Salvar</span>
             <Send size={14} />
           </button>
         </form>

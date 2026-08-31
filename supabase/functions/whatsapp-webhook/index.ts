@@ -1,50 +1,132 @@
 // Supabase Edge Function: whatsapp-webhook
-// Handles incoming WhatsApp Business Cloud API events
+// Release 3: Secure Backend Foundation
+// Handles WhatsApp Business Cloud API Webhooks
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { handleCors } from "../_shared/cors.ts";
+import { getServerSupabaseClient } from "../_shared/supabaseServer.ts";
+import { createErrorResponse, createSuccessResponse } from "../_shared/errors.ts";
+import { logSecure } from "../_shared/logger.ts";
+import { isEventProcessed } from "../_shared/idempotency.ts";
 
-const VERIFY_TOKEN = Deno.env.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN") || "fabre_wa_verify_token";
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const VERIFY_TOKEN = Deno.env.get("WEBHOOK_VERIFY_TOKEN") || Deno.env.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN");
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+serve(async (req: Request) => {
+  const startTime = Date.now();
 
-serve(async (req) => {
+  // 1. CORS Pre-flight
+  const corsResponse = handleCors(req);
+  if (corsResponse) return corsResponse;
+
   const url = new URL(req.url);
 
-  // 1. Meta / WhatsApp Webhook Handshake (GET)
+  // 2. WhatsApp Webhook Verification Handshake (GET)
   if (req.method === "GET") {
     const mode = url.searchParams.get("hub.mode");
     const token = url.searchParams.get("hub.verify_token");
     const challenge = url.searchParams.get("hub.challenge");
 
-    if (mode === "subscribe" && token === VERIFY_TOKEN) {
-      console.log("[whatsapp-webhook] Webhook verified successfully");
-      return new Response(challenge, { status: 200 });
+    if (!mode || !token) {
+      logSecure("warn", {
+        service: "whatsapp-webhook",
+        action: "verify_handshake",
+        status: "warning",
+        message: "Missing hub.mode or hub.verify_token parameter",
+      });
+      return createErrorResponse(400, "Missing verification parameters", "INVALID_INPUT");
     }
-    return new Response("Forbidden", { status: 403 });
+
+    if (mode === "subscribe" && VERIFY_TOKEN && token === VERIFY_TOKEN) {
+      logSecure("info", {
+        service: "whatsapp-webhook",
+        action: "verify_handshake",
+        status: "success",
+        message: "WhatsApp webhook handshake verified successfully",
+      });
+      return new Response(challenge || "", { status: 200 });
+    }
+
+    logSecure("warn", {
+      service: "whatsapp-webhook",
+      action: "verify_handshake",
+      status: "error",
+      message: "WhatsApp verification failed: token mismatch",
+    });
+    return createErrorResponse(403, "Verification token mismatch", "FORBIDDEN");
   }
 
-  // 2. WhatsApp Inbound Messages & Delivery Statuses (POST)
+  // 3. Inbound WhatsApp Message Ingestion (POST)
   if (req.method === "POST") {
     try {
       const payload = await req.json();
-      console.log("[whatsapp-webhook] Incoming WhatsApp payload:", JSON.stringify(payload));
 
-      // Process WhatsApp Cloud payload (Release 3)
-      return new Response(JSON.stringify({ status: "RECEIVED" }), {
-        headers: { "Content-Type": "application/json" },
-        status: 200,
+      if (!payload || typeof payload !== "object") {
+        return createErrorResponse(400, "Invalid JSON payload", "INVALID_INPUT");
+      }
+
+      if (payload.object !== "whatsapp_business_account") {
+        return createErrorResponse(400, "Invalid payload object: expected whatsapp_business_account", "INVALID_INPUT");
+      }
+
+      const entry = payload.entry?.[0];
+      const changes = entry?.changes?.[0];
+      const value = changes?.value;
+      const message = value?.messages?.[0];
+      const statusUpdate = value?.statuses?.[0];
+
+      const externalEventId = message?.id || statusUpdate?.id || `${entry?.id}_${Date.now()}`;
+
+      // Idempotency check with Supabase PostgreSQL
+      try {
+        const supabase = getServerSupabaseClient();
+        const duplicate = await isEventProcessed(supabase, externalEventId);
+
+        if (duplicate) {
+          logSecure("info", {
+            service: "whatsapp-webhook",
+            action: "process_event",
+            status: "received",
+            channel: "whatsapp",
+            eventId: externalEventId,
+            message: "Duplicate WhatsApp event detected. Skipped to preserve idempotency.",
+          });
+
+          return createSuccessResponse({ status: "EVENT_ALREADY_PROCESSED", eventId: externalEventId }, 200);
+        }
+      } catch (dbErr: unknown) {
+        const dbMsg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+        logSecure("warn", {
+          service: "whatsapp-webhook",
+          action: "idempotency_check",
+          status: "warning",
+          eventId: externalEventId,
+          message: `Database check warning: ${dbMsg}`,
+        });
+      }
+
+      logSecure("info", {
+        service: "whatsapp-webhook",
+        action: "receive_event",
+        status: "success",
+        channel: "whatsapp",
+        eventId: externalEventId,
+        durationMs: Date.now() - startTime,
+        message: message ? "WhatsApp inbound message received" : "WhatsApp status update received",
       });
-    } catch (err) {
-      console.error("[whatsapp-webhook] Error:", err);
-      return new Response(JSON.stringify({ error: "Invalid payload" }), {
-        headers: { "Content-Type": "application/json" },
-        status: 400,
+
+      return createSuccessResponse({ status: "RECEIVED", eventId: externalEventId }, 200);
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      logSecure("error", {
+        service: "whatsapp-webhook",
+        action: "process_payload",
+        status: "error",
+        durationMs: Date.now() - startTime,
+        message: `Error processing WhatsApp payload: ${errorMsg}`,
       });
+      return createErrorResponse(400, "Malformed request payload", "INVALID_INPUT");
     }
   }
 
-  return new Response("Method not allowed", { status: 405 });
+  return createErrorResponse(405, "Method not allowed", "METHOD_NOT_ALLOWED");
 });

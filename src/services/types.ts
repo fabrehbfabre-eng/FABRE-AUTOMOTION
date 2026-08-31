@@ -1,13 +1,13 @@
 /**
  * FABRE AUTOMATION - Service Layer Contracts
- * Release 1: Foundation & Architecture
+ * Release 3: Secure Backend Foundation
  * 
- * These interfaces define the decoupled contract for the application core.
- * In future releases, these contracts will be fulfilled by real API clients:
+ * These interfaces define the decoupled contracts for the application core.
+ * External integrations are proxied exclusively via secure Supabase Edge Functions:
  * - Supabase for Storage & Database
  * - Meta Graph API for Instagram Direct & Facebook Messenger
  * - WhatsApp Business Cloud API for WhatsApp
- * - OpenAI SDK for generative AI & Embeddings
+ * - OpenAI API for Generative AI & Embeddings
  */
 
 import { 
@@ -17,10 +17,11 @@ import {
   KnowledgeItem, 
   ChannelConnection, 
   ChannelType, 
-  AIConfiguration,
-  DashboardStats,
-  IntegrationCardConfig
+  AIConfiguration, 
+  DashboardStats, 
+  IntegrationCardConfig 
 } from '../types';
+import { NormalizedInboundMessage } from '../types/webhook';
 
 export interface IConversationService {
   getConversations(filter?: { channel?: ChannelType; status?: string; handler?: string }): Promise<Conversation[]>;
@@ -52,7 +53,8 @@ export interface IKnowledgeService {
 export interface IAIService {
   getConfiguration(): Promise<AIConfiguration>;
   updateConfiguration(config: Partial<AIConfiguration>): Promise<AIConfiguration>;
-  // Prepared for Release 3 (OpenAI integration)
+  generateResponse(prompt: string, options?: { maxTokens?: number; temperature?: number }): Promise<{ text: string; confidence: number; model: string }>;
+  generateResponseWithContext(prompt: string, context?: { conversationId: string; knowledgeIds?: string[] }): Promise<{ text: string; confidence: number; model: string; contextItemsCount?: number }>;
   generateResponseDraft(prompt: string, context?: { conversationId: string; knowledgeIds?: string[] }): Promise<{ text: string; confidence: number }>;
 }
 
@@ -63,21 +65,24 @@ export interface IChannelService {
 }
 
 export interface IMetaService {
-  // Prepared for Release 2 (Meta Graph API: Instagram & Messenger)
   checkStatus(): Promise<{ instagram: boolean; messenger: boolean; error?: string }>;
   verifyWebhook(hubChallenge: string, hubToken: string): boolean;
-  sendDirectMessage(recipientId: string, text: string): Promise<{ success: boolean; messageId?: string }>;
+  receiveMessage(rawPayload: Record<string, any>): Promise<NormalizedInboundMessage | null>;
+  sendMessage(recipientId: string, text: string): Promise<{ success: boolean; messageId?: string }>;
+  sendMedia(recipientId: string, mediaType: 'image' | 'audio', mediaUrl: string): Promise<{ success: boolean; messageId?: string }>;
+  getConversation(externalConversationId: string): Promise<{ id: string; messages: any[] } | null>;
 }
 
 export interface IWhatsAppService {
-  // Prepared for Release 2 (WhatsApp Cloud API)
   checkStatus(): Promise<{ whatsapp: boolean; error?: string }>;
+  verifyWebhook(hubChallenge: string, hubToken: string): boolean;
+  receiveMessage(rawPayload: Record<string, any>): Promise<NormalizedInboundMessage | null>;
   sendWhatsAppMessage(phoneNumber: string, text: string): Promise<{ success: boolean; messageId?: string }>;
   sendTemplateMessage(phoneNumber: string, templateName: string, params: Record<string, string>): Promise<{ success: boolean }>;
+  sendMedia(phoneNumber: string, mediaType: 'image' | 'audio' | 'document', mediaUrl: string, caption?: string): Promise<{ success: boolean; messageId?: string }>;
 }
 
 export interface IStorageService {
-  // Prepared for Supabase / Independent DB
   getStats(): Promise<DashboardStats>;
   getItem<T>(key: string): Promise<T | null>;
   setItem<T>(key: string, value: T): Promise<void>;

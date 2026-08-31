@@ -1,6 +1,6 @@
 /**
  * FABRE AUTOMATION - Service Layer Exports
- * Release 1: Foundation & Architecture
+ * Release 3: Secure Backend Foundation
  */
 
 export * from './types';
@@ -12,3 +12,6 @@ export * from './AIService';
 export * from './ChannelService';
 export * from './MetaService';
 export * from './WhatsAppService';
+export * from './HealthCheckService';
+export * from './InstagramIngestionService';
+export * from './normalizers/WebhookNormalizer';

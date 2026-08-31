@@ -15,18 +15,36 @@ export const ConnectionStatusBadge: React.FC<ConnectionStatusBadgeProps> = ({
   status,
   label,
 }) => {
-  if (status === 'awaiting_connection') {
+  if (status === 'awaiting_credentials') {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20">
-        <Clock size={12} className="animate-pulse text-amber-400" />
-        {label || 'Aguardando Conexão'}
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30">
+        <Clock size={12} className="text-amber-400" />
+        {label || 'Aguardando Credenciais'}
+      </span>
+    );
+  }
+
+  if (status === 'configured') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
+        <CheckCircle2 size={12} className="text-cyan-400" />
+        {label || 'Configurado'}
+      </span>
+    );
+  }
+
+  if (status === 'webhook_pending') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-500/10 text-purple-300 border border-purple-500/30">
+        <Clock size={12} className="animate-pulse text-purple-400" />
+        {label || 'Webhook Pendente'}
       </span>
     );
   }
 
   if (status === 'connected') {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/40">
         <CheckCircle2 size={12} className="text-emerald-400" />
         {label || 'Conectado'}
       </span>
@@ -38,6 +56,24 @@ export const ConnectionStatusBadge: React.FC<ConnectionStatusBadgeProps> = ({
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
         <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
         {label || 'Conectando'}
+      </span>
+    );
+  }
+
+  if (status === 'error') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/15 text-rose-300 border border-rose-500/30">
+        <AlertCircle size={12} className="text-rose-400" />
+        {label || 'Erro na Conexão'}
+      </span>
+    );
+  }
+
+  if (status === 'awaiting_connection') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20">
+        <Clock size={12} className="animate-pulse text-amber-400" />
+        {label || 'Aguardando Conexão'}
       </span>
     );
   }
