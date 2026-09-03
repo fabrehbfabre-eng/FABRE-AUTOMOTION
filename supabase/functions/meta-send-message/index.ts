@@ -1,5 +1,5 @@
 // Supabase Edge Function: meta-send-message
-// Release: Outbound Sending | Resposta do Operador pela Inbox
+// Release: Security Hardening | Autenticação JWT Criptográfica + Autorização do Operador
 // Secure server-side proxy for official Meta Graph & WhatsApp Business Cloud API outbound messages.
 // Secrets (WHATSAPP_ACCESS_TOKEN, etc.) remain strictly server-side.
 
@@ -23,19 +23,99 @@ serve(async (req: Request) => {
     return createErrorResponse(405, "Método não permitido. Utilize POST.", "METHOD_NOT_ALLOWED");
   }
 
-  // 3. Authentication & Authorization Check
-  const authHeader = req.headers.get("Authorization") || req.headers.get("apikey");
-  if (!authHeader) {
+  // 3. Cryptographic JWT Authentication Check
+  // Note: A public 'apikey' alone is NEVER accepted as operator identity.
+  // We require a valid 'Authorization: Bearer <jwt>' header.
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader || !authHeader.trim().toLowerCase().startsWith("bearer ")) {
     logSecure("warn", {
       service: "meta-send-message",
       action: "auth_check",
       status: "warning",
-      message: "Rejeitada solicitação sem cabeçalho de autorização",
+      message: "Rejeitada solicitação sem token Bearer de autorização",
     });
-    return createErrorResponse(401, "Acesso não autorizado. Cabeçalho de autorização ausente.", "UNAUTHORIZED");
+    return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
   }
 
-  // 4. Request Body Parsing & Sanitization
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (!token) {
+    logSecure("warn", {
+      service: "meta-send-message",
+      action: "auth_check",
+      status: "warning",
+      message: "Token Bearer vazio fornecido na requisição",
+    });
+    return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+  }
+
+  let user: any = null;
+  let supabase: any = null;
+
+  try {
+    supabase = getServerSupabaseClient();
+    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !authData?.user || !authData.user.id) {
+      logSecure("warn", {
+        service: "meta-send-message",
+        action: "jwt_validation",
+        status: "warning",
+        message: `Validação do JWT falhou ou sessão expirada: ${authError?.message || "Usuário não encontrado"}`,
+      });
+      return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+    }
+
+    user = authData.user;
+
+    // Verify authenticated user role (reject 'anon' tokens or service tokens posing as users)
+    if (user.role !== "authenticated") {
+      logSecure("warn", {
+        service: "meta-send-message",
+        action: "jwt_role_check",
+        status: "warning",
+        message: `Token com papel de usuário não autenticado: ${user.role}`,
+      });
+      return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+    }
+  } catch (authException: unknown) {
+    const errText = authException instanceof Error ? authException.message : String(authException);
+    logSecure("error", {
+      service: "meta-send-message",
+      action: "auth_exception",
+      status: "error",
+      message: `Erro interno ao validar sessão do usuário: ${errText}`,
+    });
+    return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+  }
+
+  // 4. Operator Authorization Check (Fail-Closed)
+  // Security Policy: Authenticated does NOT mean Authorized.
+  // 1) We NEVER trust user.user_metadata for privileged actions (user-mutable).
+  // 2) We NEVER use automatic fallback to "operator" or any default role.
+  // 3) Role MUST be explicitly declared in server-managed app_metadata.
+  // 4) Allowed roles: "operator", "admin".
+  // 5) Explicitly reject: "viewer", unknown roles, missing roles, empty roles, disabled users.
+  const appRole = typeof user.app_metadata?.role === "string"
+    ? user.app_metadata.role.trim().toLowerCase()
+    : null;
+
+  const isExplicitlyAuthorized = appRole === "operator" || appRole === "admin";
+  const isDisabled = user.app_metadata?.disabled === true || user.app_metadata?.can_send_outbound === false;
+
+  if (!isExplicitlyAuthorized || isDisabled) {
+    logSecure("warn", {
+      service: "meta-send-message",
+      action: "operator_authorization",
+      status: "warning",
+      userId: user.id,
+      appRole: appRole || "none",
+      message: `Acesso outbound rejeitado (403): Usuário autenticado (${user.id}) sem permissão explícita de operador/admin (app_metadata.role: ${appRole || "ausente"}, disabled: ${Boolean(isDisabled)})`,
+    });
+    return createErrorResponse(403, "Usuário autenticado, mas sem permissão para executar esta operação.", "FORBIDDEN");
+  }
+
+  // 5. Request Body Parsing & Sanitization
+  // Note: Executed strictly AFTER authentication and authorization have succeeded.
   let payload: Record<string, any>;
   try {
     payload = await req.json();
@@ -59,9 +139,7 @@ serve(async (req: Request) => {
   }
 
   try {
-    const supabase = getServerSupabaseClient();
-
-    // 5. Fetch Target Conversation
+    // 6. Fetch Target Conversation
     const { data: conversation, error: convErr } = await supabase
       .from("conversations")
       .select("id, contact_id, channel, status, handler")
@@ -78,7 +156,7 @@ serve(async (req: Request) => {
       return createErrorResponse(404, `Conversa não encontrada: ${conversationId}`, "NOT_FOUND");
     }
 
-    // 6. Fetch Contact Profile
+    // 7. Fetch Contact Profile
     const { data: contact, error: contactErr } = await supabase
       .from("profiles")
       .select("id, name, username, phone, channel, metadata")
@@ -97,7 +175,7 @@ serve(async (req: Request) => {
 
     const channel = conversation.channel;
 
-    // 7. Channel Outbound Certification Verification
+    // 8. Channel Outbound Certification Verification
     // Instagram & Messenger are not yet certified for outbound in this release
     if (channel === "instagram" || channel === "messenger") {
       logSecure("info", {
@@ -118,7 +196,7 @@ serve(async (req: Request) => {
       return createErrorResponse(400, `Canal não suportado para envio outbound: ${channel}`, "INVALID_INPUT");
     }
 
-    // 8. WhatsApp Outbound Parameters Resolution
+    // 9. WhatsApp Outbound Parameters Resolution
     const rawPhone = contact.phone || (contact.metadata as any)?.wa_id || contact.username?.replace(/^wa_/, "");
     const recipientPhone = (rawPhone || "").replace(/\D/g, "");
 
@@ -177,7 +255,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // 9. Official Meta WhatsApp Cloud API Request
+    // 10. Official Meta WhatsApp Cloud API Request
     const metaApiUrl = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`;
     const requestPayload = {
       messaging_product: "whatsapp",
@@ -216,7 +294,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // 10. Meta API Response Handling
+    // 11. Meta API Response Handling
     if (!metaRes.ok) {
       let metaErrorData: Record<string, any> = {};
       try {
@@ -258,11 +336,12 @@ serve(async (req: Request) => {
       );
     }
 
-    // 11. Parse Success Response & Extract wamid
+    // 12. Parse Success Response & Extract wamid
     const metaSuccessData = await metaRes.json();
     const externalMessageId = metaSuccessData.messages?.[0]?.id || `wamid.outbound_${Date.now()}`;
 
-    // 12. PostgreSQL Persistence of Outbound Message
+    // 13. PostgreSQL Persistence of Outbound Message
+    // Records the authenticated operator user.id in metadata for audit and traceability
     const { data: insertedMsg, error: insertErr } = await supabase
       .from("messages")
       .insert({
@@ -276,6 +355,8 @@ serve(async (req: Request) => {
         metadata: {
           outbound: true,
           sent_by: "operator",
+          operator_id: user.id,
+          operator_email: user.email || null,
           recipient: recipientPhone,
           phone_number_id: phoneNumberId,
           meta_message_id: externalMessageId,
@@ -299,7 +380,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // 13. Update Conversation Last Activity & Reset Unread Count
+    // 14. Update Conversation Last Activity & Reset Unread Count
     await supabase
       .from("conversations")
       .update({
@@ -315,7 +396,7 @@ serve(async (req: Request) => {
       channel: "whatsapp",
       eventId: externalMessageId,
       durationMs: Date.now() - startTime,
-      message: `Mensagem outbound do operador enviada e persistida com sucesso via WhatsApp Cloud API para ${recipientPhone}`,
+      message: `Mensagem outbound enviada pelo operador (${user.id}) e persistida com sucesso via WhatsApp Cloud API para ${recipientPhone}`,
     });
 
     return createSuccessResponse({
