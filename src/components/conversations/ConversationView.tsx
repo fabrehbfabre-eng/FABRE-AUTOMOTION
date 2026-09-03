@@ -15,13 +15,15 @@ import {
   Info,
   Zap,
   MoreVertical,
-  Check
+  Check,
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 
 interface ConversationViewProps {
   conversation: Conversation | null;
   messages: Message[];
-  onSendMessage: (text: string) => void;
+  onSendMessage: (text: string) => Promise<void> | void;
   onToggleHandler: (handler: 'bot' | 'human') => void;
   onUpdateStatus: (status: Conversation['status']) => void;
   onToggleSidebar?: () => void;
@@ -39,11 +41,19 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
 }) => {
   const [inputText, setInputText] = useState('');
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const [sendingState, setSendingState] = useState<'idle' | 'sending' | 'error'>('idle');
+  const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Clear previous errors when active conversation changes
+  useEffect(() => {
+    setSendError(null);
+    setSendingState('idle');
+  }, [conversation?.id]);
 
   if (!conversation) {
     return (
@@ -57,11 +67,23 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
     );
   }
 
-  const handleSend = (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim()) return;
-    onSendMessage(inputText);
-    setInputText('');
+    const textToSend = inputText.trim();
+    if (!textToSend || sendingState === 'sending') return;
+
+    setSendingState('sending');
+    setSendError(null);
+
+    try {
+      await onSendMessage(textToSend);
+      setInputText('');
+      setSendingState('idle');
+    } catch (err: unknown) {
+      setSendingState('error');
+      const msg = err instanceof Error ? err.message : 'Falha ao enviar mensagem.';
+      setSendError(msg);
+    }
   };
 
   const isHuman = conversation.handler === 'human';
@@ -287,16 +309,58 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Message Composer & Release 5 Notice */}
+      {/* Message Composer & Channel Outbound Notice */}
       <div className="p-4 border-t border-neutral-800/80 bg-neutral-950/90 space-y-2">
+        {/* Error notification banner */}
+        {sendError && (
+          <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-red-950/70 border border-red-800/60 text-xs text-red-200 shadow-sm animate-in fade-in">
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertCircle size={14} className="text-red-400 shrink-0" />
+              <span className="truncate">{sendError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSendError(null)}
+              className="text-red-400 hover:text-red-300 text-xs ml-3 shrink-0 cursor-pointer font-medium"
+            >
+              Dispensar
+            </button>
+          </div>
+        )}
+
+        {/* Channel Outbound Capability Status */}
+        {conversation.channel === 'whatsapp' && (
+          <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-400">
+            <span className="flex items-center gap-1.5 min-w-0">
+              <Info size={12} className="text-emerald-400 shrink-0" />
+              <span className="truncate">Canal WhatsApp ativo: respostas do operador utilizam a WhatsApp Business Cloud API oficial.</span>
+            </span>
+            <span className="font-mono text-[10px] text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/40 shrink-0 ml-2">
+              Outbound Oficial
+            </span>
+          </div>
+        )}
+
         {conversation.channel === 'instagram' && (
           <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-400">
-            <span className="flex items-center gap-1.5">
-              <Info size={12} className="text-cyan-400" />
-              <span><strong>Release 5:</strong> Ingestão real ativa. Respostas externas ao Instagram desativadas até o Release 6.</span>
+            <span className="flex items-center gap-1.5 min-w-0">
+              <Info size={12} className="text-amber-400 shrink-0" />
+              <span className="truncate">Canal Instagram: Ingestão ativa. Envio outbound pendente de certificação oficial nesta Release.</span>
             </span>
-            <span className="font-mono text-[10px] text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/40">
-              Ingestão Somente
+            <span className="font-mono text-[10px] text-amber-400 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800/40 shrink-0 ml-2">
+              Outbound Pendente
+            </span>
+          </div>
+        )}
+
+        {conversation.channel === 'messenger' && (
+          <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-400">
+            <span className="flex items-center gap-1.5 min-w-0">
+              <Info size={12} className="text-amber-400 shrink-0" />
+              <span className="truncate">Canal Messenger: Envio outbound pendente de certificação oficial nesta Release.</span>
+            </span>
+            <span className="font-mono text-[10px] text-amber-400 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800/40 shrink-0 ml-2">
+              Outbound Pendente
             </span>
           </div>
         )}
@@ -305,28 +369,35 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
           <div className="flex-1 relative">
             <input
               type="text"
+              disabled={sendingState === 'sending'}
               placeholder={
-                isHuman
-                  ? 'Digite uma mensagem interna ou resposta do operador humano...'
+                conversation.channel === 'whatsapp'
+                  ? 'Digite a resposta oficial do operador para o WhatsApp...'
+                  : isHuman
+                  ? 'Digite a resposta do operador humano...'
                   : 'Digite para registrar mensagem ou troque para Humano acima...'
               }
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              className="w-full px-4 py-2.5 text-xs bg-neutral-900 border border-neutral-800 rounded-xl text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-cyan-500/50 transition-colors"
+              className="w-full px-4 py-2.5 text-xs bg-neutral-900 border border-neutral-800 rounded-xl text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-cyan-500/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             />
           </div>
 
           <button
             type="submit"
-            disabled={!inputText.trim()}
+            disabled={!inputText.trim() || sendingState === 'sending'}
             className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
-              inputText.trim()
+              inputText.trim() && sendingState !== 'sending'
                 ? 'bg-cyan-600 hover:bg-cyan-500 text-neutral-950 shadow-md shadow-cyan-950/40'
                 : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
             }`}
           >
-            <span>Salvar</span>
-            <Send size={14} />
+            <span>{sendingState === 'sending' ? 'Enviando...' : 'Enviar'}</span>
+            {sendingState === 'sending' ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Send size={14} />
+            )}
           </button>
         </form>
       </div>

@@ -135,6 +135,11 @@ export class MockConversationRepository implements IConversationRepository {
   }
 
   async sendMessage(conversationId: string, content: string, sender: 'user' | 'bot' = 'user'): Promise<Message> {
+    const trimmed = content.trim();
+    if (!trimmed) {
+      throw new Error('Não é possível enviar mensagem vazia.');
+    }
+
     const conv = await this.getConversationById(conversationId);
     const channel = conv?.channel || 'instagram';
 
@@ -143,7 +148,7 @@ export class MockConversationRepository implements IConversationRepository {
       conversationId,
       sender,
       channel,
-      content,
+      content: trimmed,
       contentType: 'text',
       status: 'sent',
       createdAt: new Date().toISOString(),
@@ -346,5 +351,10 @@ export class MockConversationRepository implements IConversationRepository {
     await storageService.setItem('conversations', updated);
 
     return newMsg;
+  }
+
+  subscribeToNewMessages(_callback: (message: Message) => void): () => void {
+    // Mock Mode: Realtime is not active; returns clean no-op unsubscribe function
+    return () => {};
   }
 }

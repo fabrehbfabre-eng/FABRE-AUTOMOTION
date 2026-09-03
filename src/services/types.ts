@@ -30,6 +30,7 @@ export interface IConversationService {
   sendMessage(conversationId: string, content: string, sender?: 'user' | 'bot'): Promise<Message>;
   toggleHandler(conversationId: string, handler: 'bot' | 'human'): Promise<Conversation>;
   updateStatus(conversationId: string, status: Conversation['status']): Promise<Conversation>;
+  subscribeToNewMessages?(callback: (message: Message) => void): () => void;
 }
 
 export interface IAutomationService {

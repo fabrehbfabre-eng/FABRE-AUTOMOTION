@@ -206,6 +206,14 @@ export class HealthCheckService {
         description: 'Handshake e ingestão de mensagens da WhatsApp Business Cloud API',
       },
       {
+        name: 'meta-send-message',
+        path: '/supabase/functions/meta-send-message',
+        endpoint: supabaseConfig.url ? `${supabaseConfig.url}/functions/v1/meta-send-message` : '/functions/v1/meta-send-message',
+        verifyJwt: true,
+        status: backendStatus === 'deployed' ? 'deployed' : 'ready_for_deploy',
+        description: 'Envio outbound oficial do operador para WhatsApp Business Cloud API com segurança server-side',
+      },
+      {
         name: 'ai-completion',
         path: '/supabase/functions/ai-completion',
         endpoint: supabaseConfig.url ? `${supabaseConfig.url}/functions/v1/ai-completion` : '/functions/v1/ai-completion',

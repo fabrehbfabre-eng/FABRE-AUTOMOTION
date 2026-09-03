@@ -18,4 +18,7 @@ export interface IConversationRepository {
   upsertProfile(data: { name: string; username?: string; channel: ChannelType; avatarUrl?: string; phone?: string; email?: string; metadata?: Record<string, unknown> }): Promise<{ id: string; name: string }>;
   findOrCreateConversation(data: { contactId: string; channel: ChannelType; initialHandler?: 'bot' | 'human' }): Promise<Conversation>;
   createMessage(data: { conversationId: string; sender: 'contact' | 'user' | 'bot' | 'system'; channel: ChannelType; content: string; contentType?: Message['contentType']; mediaUrl?: string; externalEventId?: string; status?: 'sent' | 'delivered' | 'read' | 'failed'; metadata?: Record<string, any> }): Promise<Message>;
+
+  // Realtime Subscription (Release: Supabase Realtime | Live Inbox)
+  subscribeToNewMessages?(callback: (message: Message) => void): () => void;
 }

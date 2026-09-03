@@ -44,9 +44,44 @@ export class SupabaseConversationRepository implements IConversationRepository {
     if (filter?.handler) query = (query as any).eq('handler', filter.handler);
 
     const { data, error } = await query;
-    if (error || !data) {
-      console.warn('[SupabaseConversationRepository] getConversations error:', error);
+    if (error || !data || data.length === 0) {
+      if (error) {
+        console.warn('[SupabaseConversationRepository] getConversations error:', error);
+      }
       return [];
+    }
+
+    const conversationIds = (data as { id: string }[]).map(c => c.id);
+    const latestMessagesMap = new Map<string, Message>();
+
+    if (conversationIds.length > 0) {
+      const { data: messagesData, error: messagesError } = await client
+        .from('messages')
+        .select('*')
+        .in('conversation_id', conversationIds)
+        .order('created_at', { ascending: false });
+
+      if (messagesData && !messagesError) {
+        for (const m of messagesData) {
+          if (!latestMessagesMap.has(m.conversation_id)) {
+            latestMessagesMap.set(m.conversation_id, {
+              id: m.id,
+              conversationId: m.conversation_id,
+              sender: m.sender as Message['sender'],
+              channel: m.channel as Message['channel'],
+              content: m.content,
+              contentType: m.content_type as Message['contentType'],
+              mediaUrl: m.media_url || undefined,
+              status: m.status as Message['status'],
+              externalEventId: m.external_event_id || undefined,
+              createdAt: m.created_at,
+              metadata: (m.metadata as Message['metadata']) || undefined,
+            });
+          }
+        }
+      } else if (messagesError) {
+        console.warn('[SupabaseConversationRepository] Error fetching latest messages:', messagesError);
+      }
     }
 
     return (data as unknown[]).map((rowRaw: unknown) => {
@@ -107,6 +142,7 @@ export class SupabaseConversationRepository implements IConversationRepository {
         status: row.status,
         handler: row.handler,
         unreadCount: row.unread_count,
+        lastMessage: latestMessagesMap.get(row.id),
         tags: [row.channel],
         assignedTo: row.assigned_to || undefined,
         createdAt: row.created_at,
@@ -156,45 +192,70 @@ export class SupabaseConversationRepository implements IConversationRepository {
       throw new Error('Supabase não configurado. Não é possível enviar mensagem pelo repositório Supabase.');
     }
 
-    const conv = await this.getConversationById(conversationId);
-    const channel = conv?.channel || 'instagram';
-
-    const newMessageRow = {
-      conversation_id: conversationId,
-      sender,
-      channel,
-      content,
-      content_type: 'text' as const,
-      status: 'sent' as const,
-    };
-
-    const { data, error } = await client
-      .from('messages')
-      .insert(newMessageRow)
-      .select()
-      .single();
-
-    if (error || !data) {
-      throw new Error(`Erro ao gravar mensagem no Supabase: ${error?.message || 'Falha desconhecida'}`);
+    const trimmedContent = content.trim();
+    if (!trimmedContent) {
+      throw new Error('Não é possível enviar mensagem vazia.');
     }
 
-    // Update conversation timestamp
-    await client
-      .from('conversations')
-      .update({ updated_at: new Date().toISOString(), unread_count: 0 })
-      .eq('id', conversationId);
+    const conv = await this.getConversationById(conversationId);
+    if (!conv) {
+      throw new Error(`Conversa ${conversationId} não encontrada.`);
+    }
 
-    return {
-      id: data.id,
-      conversationId: data.conversation_id,
-      sender: data.sender as Message['sender'],
-      channel: data.channel as Message['channel'],
-      content: data.content,
-      contentType: data.content_type as Message['contentType'],
-      mediaUrl: data.media_url || undefined,
-      status: data.status as Message['status'],
-      createdAt: data.created_at,
-    };
+    const channel = conv.channel;
+
+    // Official Outbound sending for WhatsApp Business Cloud API via Edge Function meta-send-message
+    if (channel === 'whatsapp') {
+      const { data, error } = await client.functions.invoke('meta-send-message', {
+        body: {
+          conversationId,
+          text: trimmedContent,
+        },
+      });
+
+      if (error) {
+        let errorMsg = error.message;
+        if (typeof error === 'object' && error !== null && 'context' in error) {
+          try {
+            const res = (error as any).context as Response;
+            if (res && typeof res.json === 'function') {
+              const parsed = await res.json();
+              if (parsed?.error) errorMsg = parsed.error;
+              else if (parsed?.message) errorMsg = parsed.message;
+            }
+          } catch (_) {
+            // retain error.message
+          }
+        }
+        throw new Error(errorMsg || 'Falha ao enviar mensagem via WhatsApp Cloud API');
+      }
+
+      if (!data || data.status !== 'SUCCESS' || !data.message) {
+        throw new Error(data?.error || data?.message || 'Falha na resposta do serviço de envio outbound');
+      }
+
+      const msgData = data.message;
+      return {
+        id: msgData.id,
+        conversationId: msgData.conversationId,
+        sender: msgData.sender,
+        channel: msgData.channel,
+        content: msgData.content,
+        contentType: msgData.contentType || 'text',
+        status: msgData.status || 'sent',
+        externalEventId: msgData.externalEventId,
+        createdAt: msgData.createdAt,
+      };
+    }
+
+    // Channels pending certification in this release
+    if (channel === 'instagram' || channel === 'messenger') {
+      throw new Error(
+        `Envio outbound para o canal ${channel === 'instagram' ? 'Instagram' : 'Messenger'} ainda não está certificado nesta Release. Apenas WhatsApp Business Cloud API está habilitado para envio real.`
+      );
+    }
+
+    throw new Error(`Canal ${channel} não suportado para envio outbound.`);
   }
 
 
@@ -415,5 +476,64 @@ export class SupabaseConversationRepository implements IConversationRepository {
       createdAt: inserted.created_at,
       metadata: (inserted.metadata as Message['metadata']) || undefined,
     };
+  }
+
+  subscribeToNewMessages(callback: (message: Message) => void): () => void {
+    const client = getSupabaseClient();
+    if (!client) {
+      return () => {};
+    }
+
+    try {
+      const channelId = `inbox_messages_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const channel = client
+        .channel(channelId)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+          },
+          (payload) => {
+            const m = payload.new as any;
+            if (!m || !m.id || !m.conversation_id) return;
+
+            const message: Message = {
+              id: m.id,
+              conversationId: m.conversation_id,
+              sender: (m.sender || 'contact') as Message['sender'],
+              channel: (m.channel || 'instagram') as Message['channel'],
+              content: m.content || '',
+              contentType: (m.content_type || 'text') as Message['contentType'],
+              mediaUrl: m.media_url || undefined,
+              status: (m.status || 'delivered') as Message['status'],
+              externalEventId: m.external_event_id || undefined,
+              createdAt: m.created_at || new Date().toISOString(),
+              metadata: (m.metadata as Message['metadata']) || undefined,
+            };
+
+            callback(message);
+          }
+        )
+        .subscribe((status, err) => {
+          if (status === 'CHANNEL_ERROR') {
+            console.warn('[SupabaseRealtime] Channel error on messages subscription:', err);
+          } else if (status === 'TIMED_OUT') {
+            console.warn('[SupabaseRealtime] Subscription timed out');
+          }
+        });
+
+      return () => {
+        try {
+          client.removeChannel(channel);
+        } catch (cleanupErr) {
+          console.warn('[SupabaseRealtime] Error removing channel:', cleanupErr);
+        }
+      };
+    } catch (err) {
+      console.warn('[SupabaseRealtime] Failed to setup realtime subscription:', err);
+      return () => {};
+    }
   }
 }

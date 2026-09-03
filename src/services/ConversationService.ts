@@ -33,6 +33,13 @@ export class ConversationService implements IConversationService {
   async updateStatus(conversationId: string, status: Conversation['status']): Promise<Conversation> {
     return repositoryManager.conversation.updateStatus(conversationId, status);
   }
+
+  subscribeToNewMessages(callback: (message: Message) => void): () => void {
+    if (typeof repositoryManager.conversation.subscribeToNewMessages === 'function') {
+      return repositoryManager.conversation.subscribeToNewMessages(callback);
+    }
+    return () => {};
+  }
 }
 
 export const conversationService = new ConversationService();
