@@ -1,9 +1,19 @@
 /**
  * FABRE AUTOMATION - Backend & Edge Functions Health Check Service
- * Release 6: Supabase Edge Functions Deployment
+ * Release 9: Edge Functions Deployment Readiness & Server-Side Certification
  */
 
-import { testSupabaseConnection, isSupabaseConfigured, getSupabaseConfig, SupabaseConnectionStatus } from '../lib/supabase';
+import { 
+  testSupabaseConnection, 
+  runPersistenceSmokeTest,
+  isSupabaseConfigured, 
+  getSupabaseConfig, 
+  SupabaseConnectionStatus, 
+  SchemaAuditResult,
+  PersistenceSmokeTestResult,
+  DatabaseState,
+  TableVerificationDetail
+} from '../lib/supabase';
 import { ServerHealthStatus } from '../types/webhook';
 
 export type EdgeFunctionDeployStatus = 'ready_for_deploy' | 'deployed' | 'error' | 'unconfigured';
@@ -19,20 +29,57 @@ export interface EdgeFunctionItemStatus {
 
 export interface ComprehensiveHealthReport {
   frontend: {
-    status: 'ok';
+    status: 'READY';
     environment: string;
     version: string;
   };
+  supabase: {
+    status: 'CONNECTED' | 'NOT_CONFIGURED' | 'ERROR';
+    configured: boolean;
+    url: string;
+    hasPublishableKey: boolean;
+  };
+  postgres: {
+    status: 'REACHABLE' | 'UNREACHABLE' | 'NOT_CONFIGURED';
+    reachable: boolean;
+  };
+  schema: {
+    status: 'READY' | 'INCOMPLETE' | 'PENDING' | 'ERROR' | 'DEMO' | 'UNVERIFIED';
+    databaseState: DatabaseState;
+    totalExpected: number;
+    totalFound: number;
+    missingTables: string[];
+    presentTables: string[];
+    tables: TableVerificationDetail[];
+  };
+  rls: {
+    status: 'SCHEMA_DEFINED' | 'REMOTELY_CONFIRMED' | 'NOT_CONFIRMED';
+  };
+  idempotency: {
+    status: 'SCHEMA_DEFINED' | 'REMOTELY_CONFIRMED' | 'NOT_CONFIRMED';
+  };
+  persistence: {
+    status: 'CERTIFIED' | 'NOT_CERTIFIED';
+    certified: boolean;
+    message: string;
+    smokeTest?: PersistenceSmokeTestResult;
+  };
   database: {
     status: SupabaseConnectionStatus;
+    databaseState: DatabaseState;
     configured: boolean;
     connected: boolean;
     schemaApplied: boolean;
+    persistenceCertified: boolean;
+    postgresReachable: boolean;
     message: string;
+    schemaAudit?: SchemaAuditResult;
+    smokeTest?: PersistenceSmokeTestResult;
     details?: Record<string, unknown>;
   };
   backend: {
-    status: EdgeFunctionDeployStatus;
+    status: 'PREPARED' | 'DEPLOYED' | 'ERROR' | 'UNCONFIGURED';
+    rawStatus: EdgeFunctionDeployStatus;
     configured: boolean;
     available: boolean;
     url?: string;
@@ -42,37 +89,51 @@ export interface ComprehensiveHealthReport {
   };
   ai: {
     enabled: boolean;
-    status: 'deactivated';
+    status: 'DISABLED';
     message: string;
   };
   channels: {
     meta: 'awaiting_connection';
     whatsapp: 'awaiting_connection';
   };
-  overallStatus: 'ready' | 'schema_pending' | 'demo_mode' | 'configuration_error';
+  overallStatus: 'ready' | 'schema_pending' | 'schema_incomplete' | 'demo_mode' | 'configuration_error';
 }
 
 export class HealthCheckService {
   /**
-   * Executes a full system health audit (Frontend, Database, Backend Edge Functions)
+   * Executes a full system health audit (Frontend, Supabase, PostgreSQL, Schema, Persistence Smoke Test, Edge Functions)
    */
   async runHealthCheck(): Promise<ComprehensiveHealthReport> {
     const supabaseConfig = getSupabaseConfig();
     const isConfigured = isSupabaseConfigured();
 
-    // 1. Database Health Check
+    // 1. Database Health Check & Deep Schema Audit
     let dbStatus: SupabaseConnectionStatus = 'demo';
+    let databaseState: DatabaseState = 'UNVERIFIED_ENVIRONMENT';
     let dbConnected = false;
     let dbSchemaApplied = false;
-    let dbMessage = 'Supabase não configurado (.env pendente). Operando em Modo Demonstração.';
+    let dbPersistenceCertified = false;
+    let dbPostgresReachable = false;
+    let dbRlsStatus: 'SCHEMA_DEFINED' | 'REMOTELY_CONFIRMED' | 'NOT_CONFIRMED' = 'SCHEMA_DEFINED';
+    let dbIdempotencyStatus: 'SCHEMA_DEFINED' | 'REMOTELY_CONFIRMED' | 'NOT_CONFIRMED' = 'SCHEMA_DEFINED';
+    let dbMessage = 'Supabase não configurado no ambiente local (.env pendente). Operando em Modo Demonstração.';
+    let dbSchemaAudit: SchemaAuditResult | undefined = undefined;
+    let dbSmokeTest: PersistenceSmokeTestResult | undefined = undefined;
     let dbDetails: Record<string, unknown> | undefined = undefined;
 
     if (isConfigured) {
       const dbRes = await testSupabaseConnection();
       dbStatus = dbRes.status;
-      dbConnected = dbRes.status === 'connected' || dbRes.status === 'schema_pending';
+      databaseState = dbRes.databaseState;
+      dbConnected = dbRes.status === 'connected' || dbRes.status === 'schema_pending' || dbRes.status === 'schema_incomplete';
       dbSchemaApplied = dbRes.schemaApplied;
+      dbPersistenceCertified = dbRes.persistenceCertified;
+      dbPostgresReachable = dbRes.postgresReachable;
+      dbRlsStatus = dbRes.rlsStatus;
+      dbIdempotencyStatus = dbRes.idempotencyStatus;
       dbMessage = dbRes.message;
+      dbSchemaAudit = dbRes.schemaAudit;
+      dbSmokeTest = dbRes.smokeTest;
       dbDetails = dbRes.details;
     }
 
@@ -150,38 +211,100 @@ export class HealthCheckService {
         endpoint: supabaseConfig.url ? `${supabaseConfig.url}/functions/v1/ai-completion` : '/functions/v1/ai-completion',
         verifyJwt: false,
         status: backendStatus === 'deployed' ? 'deployed' : 'ready_for_deploy',
-        description: 'Pipeline de IA preparada (Explicitamente desativada na Release 6)',
+        description: 'Pipeline de IA preparada (Explicitamente DESATIVADA na Release 9)',
       },
     ];
 
-    // 3. Determine Overall Status
-    let overallStatus: 'ready' | 'schema_pending' | 'demo_mode' | 'configuration_error' = 'demo_mode';
+    // Standardized Schema status
+    let schemaStatus: ComprehensiveHealthReport['schema']['status'] = 'DEMO';
+    if (isConfigured) {
+      if (dbSchemaAudit?.allTablesExist) {
+        schemaStatus = 'READY';
+      } else if ((dbSchemaAudit?.totalFound ?? 0) > 0) {
+        schemaStatus = 'INCOMPLETE';
+      } else if (dbStatus === 'error') {
+        schemaStatus = 'ERROR';
+      } else {
+        schemaStatus = 'PENDING';
+      }
+    } else {
+      schemaStatus = 'UNVERIFIED';
+    }
+
+    // Standardized Overall Status
+    let overallStatus: ComprehensiveHealthReport['overallStatus'] = 'demo_mode';
     if (!isConfigured) {
       overallStatus = 'demo_mode';
-    } else if (dbStatus === 'connected') {
+    } else if (dbStatus === 'connected' && dbPersistenceCertified) {
       overallStatus = 'ready';
     } else if (dbStatus === 'schema_pending') {
       overallStatus = 'schema_pending';
+    } else if (dbStatus === 'schema_incomplete') {
+      overallStatus = 'schema_incomplete';
     } else {
       overallStatus = 'configuration_error';
     }
 
+    const backendNormalizedStatus: ComprehensiveHealthReport['backend']['status'] =
+      backendStatus === 'deployed' ? 'DEPLOYED' :
+      backendStatus === 'error' ? 'ERROR' :
+      backendStatus === 'unconfigured' ? 'UNCONFIGURED' : 'PREPARED';
+
     return {
       frontend: {
-        status: 'ok',
+        status: 'READY',
         environment: 'Client-Side React (Vite)',
-        version: 'Release 6.0.0',
+        version: 'Release 9.0.0',
+      },
+      supabase: {
+        status: isConfigured ? (dbConnected ? 'CONNECTED' : 'ERROR') : 'NOT_CONFIGURED',
+        configured: isConfigured,
+        url: supabaseConfig.url,
+        hasPublishableKey: supabaseConfig.hasKey,
+      },
+      postgres: {
+        status: isConfigured ? (dbPostgresReachable ? 'REACHABLE' : 'UNREACHABLE') : 'NOT_CONFIGURED',
+        reachable: dbPostgresReachable,
+      },
+      schema: {
+        status: schemaStatus,
+        databaseState,
+        totalExpected: dbSchemaAudit?.totalExpected ?? 11,
+        totalFound: dbSchemaAudit?.totalFound ?? 0,
+        missingTables: dbSchemaAudit?.missingTables ?? [],
+        presentTables: dbSchemaAudit?.presentTables ?? [],
+        tables: dbSchemaAudit?.tables ?? [],
+      },
+      rls: {
+        status: dbRlsStatus,
+      },
+      idempotency: {
+        status: dbIdempotencyStatus,
+      },
+      persistence: {
+        status: dbPersistenceCertified ? 'CERTIFIED' : 'NOT_CERTIFIED',
+        certified: dbPersistenceCertified,
+        message: dbPersistenceCertified 
+          ? 'Persistência PostgreSQL comprovada no banco remoto (11 tabelas, integridade relacional, idempotência e RLS validados).'
+          : (dbMessage || 'Persistência não certificada.'),
+        smokeTest: dbSmokeTest,
       },
       database: {
         status: dbStatus,
+        databaseState,
         configured: isConfigured,
         connected: dbConnected,
         schemaApplied: dbSchemaApplied,
+        persistenceCertified: dbPersistenceCertified,
+        postgresReachable: dbPostgresReachable,
         message: dbMessage,
+        schemaAudit: dbSchemaAudit,
+        smokeTest: dbSmokeTest,
         details: dbDetails,
       },
       backend: {
-        status: backendStatus,
+        status: backendNormalizedStatus,
+        rawStatus: backendStatus,
         configured: isConfigured,
         available: backendAvailable,
         url: supabaseConfig.url ? `${supabaseConfig.url}/functions/v1` : undefined,
@@ -191,8 +314,8 @@ export class HealthCheckService {
       },
       ai: {
         enabled: false,
-        status: 'deactivated',
-        message: 'Motor de IA desacoplado e inativo na Release 6 (AI Service not enabled).',
+        status: 'DISABLED',
+        message: 'Motor de IA permanece DESATIVADO nesta Release 9 (Zero chamadas LLM).',
       },
       channels: {
         meta: 'awaiting_connection',
@@ -200,6 +323,13 @@ export class HealthCheckService {
       },
       overallStatus,
     };
+  }
+
+  /**
+   * Executes the non-destructive Persistence Smoke Test independently
+   */
+  async runSmokeTest(): Promise<PersistenceSmokeTestResult> {
+    return runPersistenceSmokeTest();
   }
 }
 

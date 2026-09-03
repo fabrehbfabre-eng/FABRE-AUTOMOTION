@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { IntegrationCard } from '../components/settings/IntegrationCard';
 import { SupabaseSchemaModal } from '../components/settings/SupabaseSchemaModal';
 import { ArchitectureSpecModal } from '../components/settings/ArchitectureSpecModal';
+import { DeployGuideModal } from '../components/settings/DeployGuideModal';
 import { useChannels } from '../hooks/useChannels';
 import { aiService, healthCheckService, instagramIngestionService } from '../services';
 import { ComprehensiveHealthReport } from '../services/HealthCheckService';
@@ -30,7 +31,10 @@ import {
   Copy,
   Check,
   Zap,
-  Radio
+  Radio,
+  Clock,
+  AlertTriangle,
+  ShieldAlert
 } from 'lucide-react';
 import { testSupabaseConnection, isSupabaseConfigured, getSupabaseConfig } from '../lib/supabase';
 
@@ -39,6 +43,7 @@ export const SettingsPage: React.FC = () => {
   const [aiConfig, setAiConfig] = useState<AIConfiguration | null>(null);
   const [schemaModalOpen, setSchemaModalOpen] = useState(false);
   const [specModalOpen, setSpecModalOpen] = useState(false);
+  const [deployModalOpen, setDeployModalOpen] = useState(false);
   
   // Database test state
   const [testingSupabase, setTestingSupabase] = useState(false);
@@ -137,11 +142,19 @@ export const SettingsPage: React.FC = () => {
 
         <div className="flex flex-wrap items-center gap-2.5">
           <button
+            onClick={() => setDeployModalOpen(true)}
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 transition-colors flex items-center gap-2 cursor-pointer shadow-lg shadow-purple-950/30"
+          >
+            <Terminal size={15} className="text-purple-400" />
+            <span>Guia de Deploy CLI</span>
+          </button>
+
+          <button
             onClick={() => setSpecModalOpen(true)}
             className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 transition-colors flex items-center gap-2 cursor-pointer"
           >
             <ShieldCheck size={15} className="text-cyan-400" />
-            <span>Especificação Release 4</span>
+            <span>Especificação Release 9</span>
           </button>
 
           <button
@@ -171,14 +184,23 @@ export const SettingsPage: React.FC = () => {
             </div>
           </div>
 
-          <button
-            onClick={handleFullHealthCheck}
-            disabled={runningHealthCheck}
-            className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50 self-start sm:self-auto"
-          >
-            <RefreshCw size={13} className={runningHealthCheck ? 'animate-spin text-purple-400' : 'text-purple-400'} />
-            <span>{runningHealthCheck ? 'Auditando...' : 'Auditar Sistema'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setDeployModalOpen(true)}
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700 transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <Terminal size={13} className="text-purple-400" />
+              <span>Instruções CLI</span>
+            </button>
+            <button
+              onClick={handleFullHealthCheck}
+              disabled={runningHealthCheck}
+              className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-purple-600 hover:bg-purple-500 text-white transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50 shadow-md shadow-purple-950/40"
+            >
+              <RefreshCw size={13} className={runningHealthCheck ? 'animate-spin text-white' : 'text-white'} />
+              <span>{runningHealthCheck ? 'Auditando...' : 'Auditar Sistema'}</span>
+            </button>
+          </div>
         </div>
 
         {/* 3 Cards: Frontend, Database, Edge Functions */}
@@ -189,7 +211,7 @@ export const SettingsPage: React.FC = () => {
               <span className="text-xs font-mono font-bold text-neutral-300">1. FRONTEND (SPA)</span>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center gap-1">
                 <CheckCircle2 size={10} />
-                Configurado
+                Conectado
               </span>
             </div>
             <p className="text-[11px] text-neutral-400 leading-relaxed">
@@ -222,20 +244,25 @@ export const SettingsPage: React.FC = () => {
           <div className="p-4 rounded-xl bg-neutral-950/80 border border-neutral-800 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-mono font-bold text-neutral-300">3. EDGE FUNCTIONS</span>
-              {healthReport?.backend.available ? (
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center gap-1">
+              {healthReport?.backend.status === 'deployed' ? (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center gap-1 font-semibold">
                   <CheckCircle2 size={10} />
-                  Disponível
+                  Publicado
+                </span>
+              ) : healthReport?.backend.status === 'error' ? (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800 flex items-center gap-1 font-semibold">
+                  <AlertCircle size={10} />
+                  Erro
                 </span>
               ) : (
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-neutral-800 text-neutral-400 border border-neutral-700 flex items-center gap-1">
-                  <Terminal size={10} />
-                  Aguardando Deploy
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-neutral-800 text-purple-300 border border-neutral-700 flex items-center gap-1 font-semibold">
+                  <Clock size={10} />
+                  Pronto para Deploy
                 </span>
               )}
             </div>
             <p className="text-[11px] text-neutral-400 leading-relaxed">
-              {healthReport?.backend.message || 'meta-webhook, whatsapp-webhook, ai-completion e health-check estruturadas.'}
+              {healthReport?.backend.message || '4 Edge Functions estruturadas em /supabase/functions/, aguardando deploy via CLI.'}
             </p>
           </div>
         </div>
@@ -258,18 +285,80 @@ export const SettingsPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isConnected ? (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono">
                 <CheckCircle2 size={13} className="text-emerald-400" />
-                Supabase Ativo (PostgreSQL)
+                Supabase PostgreSQL: CONECTADO
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono">
-                <AlertCircle size={13} className="text-amber-400" />
-                Modo Demonstração (Mock Local)
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-neutral-800 text-neutral-400 border border-neutral-700 font-mono">
+                <AlertCircle size={13} className="text-neutral-400" />
+                Supabase: NÃO CONFIGURADO (.env)
               </span>
             )}
+
+            {healthReport?.schema.databaseState === 'DATABASE_SCHEMA_READY' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono">
+                <CheckCircle2 size={13} className="text-emerald-400" />
+                Schema: 11/11 TABELAS CONFIRMADAS
+              </span>
+            ) : healthReport?.schema.databaseState === 'DATABASE_SCHEMA_INCOMPLETE' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono">
+                <AlertTriangle size={13} className="text-amber-400" />
+                Schema: {healthReport.schema.totalFound}/11 INCOMPLETO
+              </span>
+            ) : isConnected ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/30 font-mono">
+                <Clock size={13} className="text-amber-400" />
+                Schema: PENDENTE NO BANCO (0/11)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-neutral-800 text-neutral-400 border border-neutral-700 font-mono">
+                <AlertCircle size={13} className="text-neutral-400" />
+                Schema: MOCK LOCAL (Demo)
+              </span>
+            )}
+
+            {healthReport?.persistence.certified ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 font-mono">
+                <ShieldCheck size={13} className="text-emerald-400" />
+                Persistência: CERTIFICADA
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30 font-mono">
+                <ShieldAlert size={13} className="text-amber-400" />
+                Persistência: NÃO CERTIFICADA
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Status Indicators 4-Columns */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+          <div className="p-2.5 rounded-xl bg-neutral-950/80 border border-neutral-800">
+            <span className="text-neutral-500 block text-[10px]">BANCO REMOTO</span>
+            <span className={`font-bold ${isConnected ? 'text-emerald-400' : 'text-neutral-400'}`}>
+              {isConnected ? 'CONECTADO' : 'NÃO CONFIGURADO'}
+            </span>
+          </div>
+          <div className="p-2.5 rounded-xl bg-neutral-950/80 border border-neutral-800">
+            <span className="text-neutral-500 block text-[10px]">TABELAS NO SCHEMA</span>
+            <span className={`font-bold ${healthReport?.schema.totalFound === 11 ? 'text-emerald-400' : isConnected ? 'text-amber-400' : 'text-neutral-400'}`}>
+              {healthReport ? `${healthReport.schema.totalFound}/11 CONFIRMADAS` : 'NÃO AUDITADO'}
+            </span>
+          </div>
+          <div className="p-2.5 rounded-xl bg-neutral-950/80 border border-neutral-800">
+            <span className="text-neutral-500 block text-[10px]">RLS POLICIES</span>
+            <span className={`font-bold ${healthReport?.rls.status === 'REMOTELY_CONFIRMED' ? 'text-emerald-400' : 'text-cyan-400'}`}>
+              {healthReport?.rls.status === 'REMOTELY_CONFIRMED' ? 'CONFIRMADO NO BANCO' : 'DEFINIDO NO SCHEMA'}
+            </span>
+          </div>
+          <div className="p-2.5 rounded-xl bg-neutral-950/80 border border-neutral-800">
+            <span className="text-neutral-500 block text-[10px]">IDEMPOTÊNCIA</span>
+            <span className={`font-bold ${healthReport?.idempotency.status === 'REMOTELY_CONFIRMED' ? 'text-emerald-400' : 'text-cyan-400'}`}>
+              {healthReport?.idempotency.status === 'REMOTELY_CONFIRMED' ? 'CONFIRMADA NO BANCO' : 'DEFINIDA NO SCHEMA'}
+            </span>
           </div>
         </div>
 
@@ -625,6 +714,14 @@ export const SettingsPage: React.FC = () => {
       <ArchitectureSpecModal
         isOpen={specModalOpen}
         onClose={() => setSpecModalOpen(false)}
+      />
+
+      {/* Edge Functions Deploy Guide Modal */}
+      <DeployGuideModal
+        isOpen={deployModalOpen}
+        onClose={() => setDeployModalOpen(false)}
+        functions={healthReport?.backend.functions || []}
+        backendAvailable={healthReport?.backend.available || false}
       />
     </div>
   );

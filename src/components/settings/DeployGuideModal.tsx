@@ -62,7 +62,7 @@ export const DeployGuideModal: React.FC<DeployGuideModalProps> = ({
       endpoint: `${supabaseConfig.url || 'https://seu-projeto.supabase.co'}/functions/v1/ai-completion`,
       verifyJwt: false,
       status: backendAvailable ? 'deployed' : 'ready_for_deploy',
-      description: 'Pipeline de IA preparada (Explicitamente desativada na Release 6)',
+      description: 'Pipeline de IA preparada (Explicitamente DESATIVADA na Release 9)',
     },
   ];
 
@@ -102,7 +102,7 @@ supabase secrets set \\
                 Deploy das Supabase Edge Functions
               </h2>
               <p className="text-xs text-neutral-400">
-                Guia oficial de publicação via Supabase CLI (Release 6 | FABRE AUTOMATION)
+                Guia operacional de publicação via Supabase CLI (Release 9 | FABRE AUTOMATION)
               </p>
             </div>
           </div>
