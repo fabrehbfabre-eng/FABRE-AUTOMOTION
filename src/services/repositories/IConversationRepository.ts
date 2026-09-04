@@ -12,6 +12,8 @@ export interface IConversationRepository {
   sendMessage(conversationId: string, content: string, sender?: 'user' | 'bot'): Promise<Message>;
   toggleHandler(conversationId: string, handler: 'bot' | 'human'): Promise<Conversation>;
   updateStatus(conversationId: string, status: Conversation['status']): Promise<Conversation>;
+  addTag?(conversationId: string, tag: string): Promise<Conversation>;
+  removeTag?(conversationId: string, tag: string): Promise<Conversation>;
   getStats(): Promise<{ totalConversations: number; humanHandoffs: number; automatedMessages: number }>;
   
   // Ingestion Methods (Release 5)
@@ -21,4 +23,18 @@ export interface IConversationRepository {
 
   // Realtime Subscription (Release: Supabase Realtime | Live Inbox)
   subscribeToNewMessages?(callback: (message: Message) => void): () => void;
+  subscribeToInboxEvents?(callbacks: RealtimeInboxCallbacks): () => void;
+}
+
+export interface ConversationUpdateEvent {
+  id: string;
+  status?: Conversation['status'];
+  handler?: Conversation['handler'];
+  unreadCount?: number;
+  updatedAt?: string;
+}
+
+export interface RealtimeInboxCallbacks {
+  onNewMessage?: (message: Message) => void;
+  onConversationUpdate?: (update: ConversationUpdateEvent) => void;
 }

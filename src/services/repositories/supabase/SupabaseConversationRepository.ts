@@ -4,7 +4,7 @@
  */
 
 import { Conversation, Message, ChannelType } from '../../../types';
-import { IConversationRepository } from '../IConversationRepository';
+import { IConversationRepository, RealtimeInboxCallbacks, ConversationUpdateEvent } from '../IConversationRepository';
 import { getSupabaseClient } from '../../../lib/supabase';
 
 export class SupabaseConversationRepository implements IConversationRepository {
@@ -479,16 +479,21 @@ export class SupabaseConversationRepository implements IConversationRepository {
   }
 
   subscribeToNewMessages(callback: (message: Message) => void): () => void {
+    return this.subscribeToInboxEvents({ onNewMessage: callback });
+  }
+
+  subscribeToInboxEvents(callbacks: RealtimeInboxCallbacks): () => void {
     const client = getSupabaseClient();
     if (!client) {
       return () => {};
     }
 
     try {
-      const channelId = `inbox_messages_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      const channel = client
-        .channel(channelId)
-        .on(
+      const channelId = `inbox_events_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      let channel = client.channel(channelId);
+
+      if (callbacks.onNewMessage) {
+        channel = channel.on(
           'postgres_changes',
           {
             event: 'INSERT',
@@ -513,16 +518,47 @@ export class SupabaseConversationRepository implements IConversationRepository {
               metadata: (m.metadata as Message['metadata']) || undefined,
             };
 
-            callback(message);
+            callbacks.onNewMessage?.(message);
           }
-        )
-        .subscribe((status, err) => {
-          if (status === 'CHANNEL_ERROR') {
-            console.warn('[SupabaseRealtime] Channel error on messages subscription:', err);
-          } else if (status === 'TIMED_OUT') {
-            console.warn('[SupabaseRealtime] Subscription timed out');
+        );
+      }
+
+      if (callbacks.onConversationUpdate) {
+        channel = channel.on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'conversations',
+          },
+          (payload) => {
+            const c = payload.new as any;
+            if (!c || !c.id) return;
+
+            const updateEvent: ConversationUpdateEvent = {
+              id: c.id,
+              status: c.status,
+              handler: c.handler,
+              unreadCount: typeof c.unread_count === 'number' ? c.unread_count : undefined,
+              updatedAt: c.updated_at || undefined,
+            };
+
+            callbacks.onConversationUpdate?.(updateEvent);
           }
-        });
+        );
+      }
+
+      channel.subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') {
+          // Channel connected successfully
+        } else if (status === 'CHANNEL_ERROR') {
+          console.warn('[SupabaseRealtime] Channel error on inbox events subscription:', err);
+        } else if (status === 'TIMED_OUT') {
+          console.warn('[SupabaseRealtime] Subscription timed out');
+        } else if (status === 'CLOSED') {
+          // Channel closed gracefully
+        }
+      });
 
       return () => {
         try {
@@ -532,7 +568,7 @@ export class SupabaseConversationRepository implements IConversationRepository {
         }
       };
     } catch (err) {
-      console.warn('[SupabaseRealtime] Failed to setup realtime subscription:', err);
+      console.warn('[SupabaseRealtime] Failed to setup inbox realtime subscription:', err);
       return () => {};
     }
   }

@@ -58,55 +58,70 @@ export function useConversations() {
     fetchMessages();
   }, [activeConversationId]);
 
-  // Supabase Realtime: Live Inbox subscription for new messages (INSERT on messages)
+  // Supabase Realtime: Live Inbox subscription for new messages & conversation updates
   useEffect(() => {
-    if (typeof conversationService.subscribeToNewMessages !== 'function') {
+    if (typeof conversationService.subscribeToInboxEvents !== 'function') {
       return;
     }
 
-    const unsubscribe = conversationService.subscribeToNewMessages((newMsg: Message) => {
-      // 1. If currently viewing this conversation, append new message avoiding duplicates
-      if (activeIdRef.current === newMsg.conversationId) {
-        setMessages(prev => {
-          if (prev.some(m => m.id === newMsg.id || (newMsg.externalEventId && m.externalEventId === newMsg.externalEventId))) {
+    const unsubscribe = conversationService.subscribeToInboxEvents({
+      onNewMessage: (newMsg: Message) => {
+        // 1. If currently viewing this conversation, append new message avoiding duplicates
+        if (activeIdRef.current === newMsg.conversationId) {
+          setMessages(prev => {
+            if (prev.some(m => m.id === newMsg.id || (newMsg.externalEventId && m.externalEventId === newMsg.externalEventId))) {
+              return prev;
+            }
+            return [...prev, newMsg];
+          });
+        }
+
+        // 2. Update conversation list: update lastMessage, timestamp, and reorder to top
+        setConversations(prev => {
+          const index = prev.findIndex(c => c.id === newMsg.conversationId);
+          if (index !== -1) {
+            const currentConv = prev[index];
+            const isCurrentlyActive = activeIdRef.current === currentConv.id;
+            const updatedConv: Conversation = {
+              ...currentConv,
+              lastMessage: newMsg,
+              updatedAt: newMsg.createdAt || new Date().toISOString(),
+              unreadCount: isCurrentlyActive ? currentConv.unreadCount : (currentConv.unreadCount || 0) + 1,
+            };
+
+            const remaining = prev.filter((_, i) => i !== index);
+            return [updatedConv, ...remaining];
+          } else {
+            // If conversation is brand new, fetch complete data from repository
+            conversationService.getConversationById(newMsg.conversationId)
+              .then(fetched => {
+                if (fetched) {
+                  setConversations(current => {
+                    if (current.some(c => c.id === fetched.id)) return current;
+                    return [{ ...fetched, lastMessage: newMsg }, ...current];
+                  });
+                }
+              })
+              .catch(err => {
+                console.warn('[LiveInbox] Failed to fetch newly created conversation:', err);
+              });
             return prev;
           }
-          return [...prev, newMsg];
         });
-      }
+      },
 
-      // 2. Update conversation list: update lastMessage, timestamp, and reorder to top
-      setConversations(prev => {
-        const index = prev.findIndex(c => c.id === newMsg.conversationId);
-        if (index !== -1) {
-          const currentConv = prev[index];
-          const isCurrentlyActive = activeIdRef.current === currentConv.id;
-          const updatedConv: Conversation = {
-            ...currentConv,
-            lastMessage: newMsg,
-            updatedAt: newMsg.createdAt || new Date().toISOString(),
-            unreadCount: isCurrentlyActive ? currentConv.unreadCount : (currentConv.unreadCount || 0) + 1,
+      onConversationUpdate: (update) => {
+        setConversations(prev => prev.map(conv => {
+          if (conv.id !== update.id) return conv;
+          return {
+            ...conv,
+            ...(update.status ? { status: update.status } : {}),
+            ...(update.handler ? { handler: update.handler } : {}),
+            ...(typeof update.unreadCount === 'number' ? { unreadCount: update.unreadCount } : {}),
+            ...(update.updatedAt ? { updatedAt: update.updatedAt } : {}),
           };
-
-          const remaining = prev.filter((_, i) => i !== index);
-          return [updatedConv, ...remaining];
-        } else {
-          // If conversation is brand new, fetch it from repository
-          conversationService.getConversationById(newMsg.conversationId)
-            .then(fetched => {
-              if (fetched) {
-                setConversations(current => {
-                  if (current.some(c => c.id === fetched.id)) return current;
-                  return [{ ...fetched, lastMessage: newMsg }, ...current];
-                });
-              }
-            })
-            .catch(err => {
-              console.warn('[LiveInbox] Failed to fetch newly created conversation:', err);
-            });
-          return prev;
-        }
-      });
+        }));
+      },
     });
 
     return () => {

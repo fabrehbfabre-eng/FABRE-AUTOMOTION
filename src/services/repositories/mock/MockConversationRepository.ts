@@ -4,7 +4,7 @@
  */
 
 import { Conversation, Message, ChannelType } from '../../../types';
-import { IConversationRepository } from '../IConversationRepository';
+import { IConversationRepository, RealtimeInboxCallbacks } from '../IConversationRepository';
 import { INITIAL_CONVERSATIONS, storageService } from '../../StorageService';
 
 const SAMPLE_MESSAGES: Record<string, Message[]> = {
@@ -244,6 +244,43 @@ export class MockConversationRepository implements IConversationRepository {
     return updatedConv;
   }
 
+  async addTag(conversationId: string, tag: string): Promise<Conversation> {
+    const conversations = await this.getConversations();
+    let updatedConv: Conversation | null = null;
+    const updated = conversations.map(c => {
+      if (c.id === conversationId) {
+        const current = c.tags || [];
+        updatedConv = {
+          ...c,
+          tags: current.includes(tag) ? current : [...current, tag],
+          updatedAt: new Date().toISOString(),
+        };
+        return updatedConv;
+      }
+      return c;
+    });
+    await storageService.setItem('conversations', updated);
+    return updatedConv || (await this.getConversationById(conversationId))!;
+  }
+
+  async removeTag(conversationId: string, tag: string): Promise<Conversation> {
+    const conversations = await this.getConversations();
+    let updatedConv: Conversation | null = null;
+    const updated = conversations.map(c => {
+      if (c.id === conversationId) {
+        updatedConv = {
+          ...c,
+          tags: (c.tags || []).filter(t => t !== tag),
+          updatedAt: new Date().toISOString(),
+        };
+        return updatedConv;
+      }
+      return c;
+    });
+    await storageService.setItem('conversations', updated);
+    return updatedConv || (await this.getConversationById(conversationId))!;
+  }
+
   async getStats(): Promise<{ totalConversations: number; humanHandoffs: number; automatedMessages: number }> {
     const conversations = await this.getConversations();
     const handoffs = conversations.filter(c => c.handler === 'human').length;
@@ -354,6 +391,11 @@ export class MockConversationRepository implements IConversationRepository {
   }
 
   subscribeToNewMessages(_callback: (message: Message) => void): () => void {
+    // Mock Mode: Realtime is not active; returns clean no-op unsubscribe function
+    return () => {};
+  }
+
+  subscribeToInboxEvents(_callbacks: RealtimeInboxCallbacks): () => void {
     // Mock Mode: Realtime is not active; returns clean no-op unsubscribe function
     return () => {};
   }

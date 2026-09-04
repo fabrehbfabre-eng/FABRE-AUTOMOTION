@@ -22,6 +22,10 @@ import {
   IntegrationCardConfig 
 } from '../types';
 import { NormalizedInboundMessage } from '../types/webhook';
+import { RealtimeInboxCallbacks, ConversationUpdateEvent } from './repositories/IConversationRepository';
+import { RuleEngineEvent, RuleEngineResult } from './engine/types';
+
+export type { RealtimeInboxCallbacks, ConversationUpdateEvent };
 
 export interface IConversationService {
   getConversations(filter?: { channel?: ChannelType; status?: string; handler?: string }): Promise<Conversation[]>;
@@ -31,6 +35,8 @@ export interface IConversationService {
   toggleHandler(conversationId: string, handler: 'bot' | 'human'): Promise<Conversation>;
   updateStatus(conversationId: string, status: Conversation['status']): Promise<Conversation>;
   subscribeToNewMessages?(callback: (message: Message) => void): () => void;
+  subscribeToInboxEvents?(callbacks: RealtimeInboxCallbacks): () => void;
+  processInboundEvent?(event: RuleEngineEvent): Promise<RuleEngineResult>;
 }
 
 export interface IAutomationService {

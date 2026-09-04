@@ -8,6 +8,7 @@
 import { Automation } from '../types';
 import { IAutomationService } from './types';
 import { repositoryManager } from './repositories';
+import { validateAutomationData } from './engine/validation';
 
 export class AutomationService implements IAutomationService {
   async getAutomations(): Promise<Automation[]> {
@@ -19,10 +20,12 @@ export class AutomationService implements IAutomationService {
   }
 
   async createAutomation(data: Omit<Automation, 'id' | 'createdAt' | 'updatedAt' | 'executionCount'>): Promise<Automation> {
+    validateAutomationData(data);
     return repositoryManager.automation.createAutomation(data);
   }
 
   async updateAutomation(id: string, updates: Partial<Automation>): Promise<Automation> {
+    validateAutomationData(updates);
     return repositoryManager.automation.updateAutomation(id, updates);
   }
 

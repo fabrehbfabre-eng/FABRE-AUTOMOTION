@@ -26,6 +26,8 @@ import { SupabaseChannelRepository } from './supabase/SupabaseChannelRepository'
 export type StorageProviderType = 'supabase' | 'mock';
 
 class RepositoryManager {
+  private forcedProvider: StorageProviderType | null = null;
+
   private mockConv = new MockConversationRepository();
   private mockAuto = new MockAutomationRepository();
   private mockKb = new MockKnowledgeRepository();
@@ -36,7 +38,12 @@ class RepositoryManager {
   private supabaseKb = new SupabaseKnowledgeRepository();
   private supabaseChan = new SupabaseChannelRepository();
 
+  setProvider(provider: StorageProviderType | null): void {
+    this.forcedProvider = provider;
+  }
+
   getProvider(): StorageProviderType {
+    if (this.forcedProvider) return this.forcedProvider;
     return isSupabaseConfigured() ? 'supabase' : 'mock';
   }
 
@@ -58,3 +65,14 @@ class RepositoryManager {
 }
 
 export const repositoryManager = new RepositoryManager();
+
+export {
+  MockConversationRepository,
+  MockAutomationRepository,
+  MockKnowledgeRepository,
+  MockChannelRepository,
+  SupabaseConversationRepository,
+  SupabaseAutomationRepository,
+  SupabaseKnowledgeRepository,
+  SupabaseChannelRepository,
+};

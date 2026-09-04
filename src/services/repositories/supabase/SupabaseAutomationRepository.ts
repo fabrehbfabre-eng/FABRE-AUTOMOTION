@@ -192,6 +192,34 @@ export class SupabaseAutomationRepository implements IAutomationRepository {
 
     await (client.from('automations') as any).update(updatePayload).eq('id', id);
 
+    // Update trigger if provided
+    if (updates.trigger !== undefined) {
+      await (client.from('automation_triggers') as any).delete().eq('automation_id', id);
+      await (client.from('automation_triggers') as any).insert({
+        automation_id: id,
+        type: updates.trigger.type,
+        name: updates.trigger.name,
+        description: updates.trigger.description,
+        config: updates.trigger.config as any,
+      });
+    }
+
+    // Update actions if provided
+    if (updates.actions !== undefined) {
+      await (client.from('automation_actions') as any).delete().eq('automation_id', id);
+      if (updates.actions.length > 0) {
+        const actionsToInsert = updates.actions.map((act, index) => ({
+          automation_id: id,
+          type: act.type,
+          name: act.name,
+          description: act.description,
+          config: act.config as any,
+          sort_order: index,
+        }));
+        await (client.from('automation_actions') as any).insert(actionsToInsert);
+      }
+    }
+
     const updated = await this.getAutomationById(id);
     if (!updated) throw new Error(`Automation not found: ${id}`);
     return updated;

@@ -1,20 +1,22 @@
 /**
  * FABRE AUTOMATION - Automation Rule Card
+ * Release: Automation Control Plane
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Automation } from '../../types';
 import { ChannelIcon } from '../common/ChannelIcon';
-import { Badge } from '../common/Badge';
-import { 
-  Zap, 
-  ArrowRight, 
-  MessageSquare, 
-  Tag, 
-  Trash2, 
+import {
+  Zap,
+  ArrowRight,
+  Tag,
+  Trash2,
   Edit3,
   CheckCircle2,
-  Clock
+  Clock,
+  UserCheck,
+  Bot,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface AutomationCardProps {
@@ -30,7 +32,9 @@ export const AutomationCard: React.FC<AutomationCardProps> = ({
   onEdit,
   onDelete,
 }) => {
-  const triggerTypeLabels = {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const triggerTypeLabels: Record<string, string> = {
     keyword_direct: 'Mensagem no Direct',
     comment_post: 'Comentário em Post',
     story_reply: 'Resposta ao Story',
@@ -38,14 +42,19 @@ export const AutomationCard: React.FC<AutomationCardProps> = ({
     inactive_followup: 'Follow-up de Inatividade',
   };
 
-  const actionTypeLabels = {
-    send_message: 'Enviar Mensagem',
-    send_dm: 'Enviar Direct',
-    assign_human: 'Transferir para Humano',
-    add_tag: 'Adicionar Etiqueta',
-    remove_tag: 'Remover Etiqueta',
-    query_ai: 'Consultar IA',
-    delay: 'Aguardar Tempo',
+  const matchTypeLabels: Record<string, string> = {
+    exact: 'Exata',
+    contains: 'Contém',
+    regex: 'Regex',
+  };
+
+  const handleDelete = () => {
+    if (confirmDelete) {
+      onDelete(automation.id);
+      setConfirmDelete(false);
+    } else {
+      setConfirmDelete(true);
+    }
   };
 
   return (
@@ -76,7 +85,7 @@ export const AutomationCard: React.FC<AutomationCardProps> = ({
               <ChannelIcon channel={automation.channel} size={14} />
             </div>
             <p className="text-xs text-neutral-400 mt-0.5 line-clamp-1">
-              {automation.description}
+              {automation.description || 'Sem descrição cadastrada.'}
             </p>
           </div>
         </div>
@@ -97,7 +106,7 @@ export const AutomationCard: React.FC<AutomationCardProps> = ({
             <input
               type="checkbox"
               checked={automation.enabled}
-              onChange={(e) => onToggle(automation.id, e.target.checked)}
+              onChange={e => onToggle(automation.id, e.target.checked)}
               className="sr-only peer"
             />
             <div className="w-10 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600"></div>
@@ -123,9 +132,12 @@ export const AutomationCard: React.FC<AutomationCardProps> = ({
             {automation.trigger.name}
           </p>
 
+          {/* Keywords or Trigger specifics */}
           {automation.trigger.config.keywords && (
             <div className="flex flex-wrap items-center gap-1.5 pt-1">
-              <span className="text-[10px] text-neutral-500 font-mono">Palavras-chave:</span>
+              <span className="text-[10px] text-neutral-500 font-mono">
+                Palavras ({matchTypeLabels[automation.trigger.config.matchType as string] || 'Contém'}):
+              </span>
               {automation.trigger.config.keywords.map((kw, i) => (
                 <span
                   key={i}
@@ -135,6 +147,18 @@ export const AutomationCard: React.FC<AutomationCardProps> = ({
                 </span>
               ))}
             </div>
+          )}
+
+          {automation.trigger.type === 'inactive_followup' && automation.trigger.config.inactivityHours && (
+            <span className="inline-block text-[11px] text-amber-400 font-mono">
+              Inatividade configurada: {automation.trigger.config.inactivityHours as number} horas
+            </span>
+          )}
+
+          {automation.trigger.type === 'comment_post' && automation.trigger.config.postUrl && (
+            <p className="text-[10px] text-neutral-400 font-mono truncate">
+              Post: {automation.trigger.config.postUrl as string}
+            </p>
           )}
         </div>
 
@@ -151,19 +175,44 @@ export const AutomationCard: React.FC<AutomationCardProps> = ({
           </div>
 
           <div className="space-y-1.5">
-            {automation.actions.map((act) => (
-              <div key={act.id} className="text-xs text-neutral-200 flex items-start gap-2">
+            {automation.actions.map((act, idx) => (
+              <div key={act.id || idx} className="text-xs text-neutral-200 flex items-start gap-2">
                 <ArrowRight size={13} className="text-emerald-400 shrink-0 mt-0.5" />
                 <div className="min-w-0 flex-1">
-                  <span className="font-medium">{act.name}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium">{act.name}</span>
+                    <span className="text-[9px] font-mono text-neutral-500 bg-neutral-900 px-1.5 py-0.2 rounded border border-neutral-800">
+                      {act.type}
+                    </span>
+                  </div>
+
                   {act.config.messageText && (
                     <p className="text-[11px] text-neutral-400 truncate mt-0.5 font-mono">
                       "{act.config.messageText}"
                     </p>
                   )}
+
                   {act.config.tagName && (
                     <span className="inline-flex items-center gap-1 text-[10px] text-cyan-300 font-mono mt-0.5">
-                      <Tag size={10} /> +{act.config.tagName}
+                      <Tag size={10} /> {act.type === 'remove_tag' ? `-${act.config.tagName}` : `+${act.config.tagName}`}
+                    </span>
+                  )}
+
+                  {act.type === 'assign_human' && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-300 font-mono mt-0.5">
+                      <UserCheck size={10} /> Transbordo para atendente humano
+                    </span>
+                  )}
+
+                  {act.type === 'query_ai' && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-purple-300 font-mono mt-0.5">
+                      <Bot size={10} /> Consulta com IA (Base de Conhecimento RAG)
+                    </span>
+                  )}
+
+                  {act.type === 'delay' && act.config.delaySeconds && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-300 font-mono mt-0.5">
+                      <Clock size={10} /> Aguardar {act.config.delaySeconds as number}s
                     </span>
                   )}
                 </div>
@@ -180,6 +229,11 @@ export const AutomationCard: React.FC<AutomationCardProps> = ({
             <Clock size={12} />
             Execuções: <strong className="text-neutral-300 font-mono">{automation.executionCount}</strong>
           </span>
+          {automation.lastExecutedAt && (
+            <span className="text-[11px] font-mono">
+              Última execução: {new Date(automation.lastExecutedAt).toLocaleDateString('pt-BR')}
+            </span>
+          )}
           <span className="text-[11px] font-mono">
             Criada em: {new Date(automation.createdAt).toLocaleDateString('pt-BR')}
           </span>
@@ -193,13 +247,33 @@ export const AutomationCard: React.FC<AutomationCardProps> = ({
           >
             <Edit3 size={14} />
           </button>
-          <button
-            onClick={() => onDelete(automation.id)}
-            className="p-1.5 rounded-lg text-neutral-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-            title="Excluir Regra"
-          >
-            <Trash2 size={14} />
-          </button>
+
+          {confirmDelete ? (
+            <div className="flex items-center gap-1 bg-rose-950/80 px-2 py-1 rounded-lg border border-rose-800">
+              <AlertTriangle size={12} className="text-rose-400" />
+              <span className="text-[10px] text-rose-200">Confirmar?</span>
+              <button
+                onClick={handleDelete}
+                className="px-1.5 py-0.5 bg-rose-600 hover:bg-rose-500 text-neutral-950 rounded text-[10px] font-bold"
+              >
+                Sim
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="px-1.5 py-0.5 text-neutral-400 hover:text-neutral-200 text-[10px]"
+              >
+                Não
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleDelete}
+              className="p-1.5 rounded-lg text-neutral-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+              title="Excluir Regra"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
       </div>
     </div>

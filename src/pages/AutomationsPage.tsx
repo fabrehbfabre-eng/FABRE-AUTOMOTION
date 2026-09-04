@@ -80,11 +80,11 @@ export const AutomationsPage: React.FC = () => {
         <div className="flex items-center gap-2.5 text-neutral-300">
           <Sparkles size={16} className="text-cyan-400 shrink-0" />
           <span>
-            <strong>Release 1:</strong> Estrutura lógica e visual de automações configurada. O motor de execução em tempo real será conectado na Release 2 junto com os Webhooks da Meta.
+            <strong>Control Plane:</strong> Gestão direta de regras e sequências de ações integrada ao <strong>Rule Engine</strong> e persistência oficial.
           </span>
         </div>
         <span className="text-[11px] font-mono text-cyan-400 bg-cyan-950/80 px-2.5 py-1 rounded-full border border-cyan-800/40 shrink-0">
-          Foundation Ready
+          Control Plane Ativo
         </span>
       </div>
 

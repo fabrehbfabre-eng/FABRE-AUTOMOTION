@@ -12,6 +12,7 @@ import { NormalizedIncomingMessage, NormalizedInboundMessage } from '../types/we
 import { WebhookNormalizer } from './normalizers/WebhookNormalizer';
 import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabase';
 import { repositoryManager } from './repositories';
+import { ruleEngine } from './engine/RuleEngine';
 
 export interface IngestionResult {
   success: boolean;
@@ -128,7 +129,34 @@ export class InstagramIngestionService {
         },
       });
 
-      // 5. Update Channel Connection status to connected
+      // 5. Evaluate Rule Engine for inbound contact message
+      try {
+        await ruleEngine.processEvent({
+          conversationId: conversation.id,
+          channel: 'instagram',
+          messageId: message.id,
+          externalEventId: externalEventId,
+          sender: 'contact',
+          content: normalized.messageText,
+          contentType: normalized.messageType,
+          timestamp: message.createdAt || new Date().toISOString(),
+          contact: {
+            id: contact.id,
+            name: contact.name,
+            username: `ig_${senderId}`,
+          },
+          metadata: {
+            rawMessageId: normalized.messageId,
+            platform: 'instagram_direct',
+            isStoryReply: 'isStoryReply' in normalized ? Boolean(normalized.isStoryReply) : false,
+            isComment: 'isComment' in normalized ? Boolean(normalized.isComment) : false,
+          },
+        });
+      } catch (engineErr) {
+        console.warn('[InstagramIngestionService] Rule Engine processing exception:', engineErr);
+      }
+
+      // 6. Update Channel Connection status to connected
       try {
         await repositoryManager.channel.updateConnection('instagram', {
           status: 'connected',

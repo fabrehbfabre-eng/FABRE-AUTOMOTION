@@ -6,8 +6,10 @@
  */
 
 import { Conversation, Message, ChannelType } from '../types';
-import { IConversationService } from './types';
+import { IConversationService, RealtimeInboxCallbacks } from './types';
 import { repositoryManager } from './repositories';
+import { ruleEngine } from './engine/RuleEngine';
+import { RuleEngineEvent, RuleEngineResult } from './engine/types';
 
 export class ConversationService implements IConversationService {
   async getConversations(filter?: { channel?: ChannelType; status?: string; handler?: string }): Promise<Conversation[]> {
@@ -34,9 +36,22 @@ export class ConversationService implements IConversationService {
     return repositoryManager.conversation.updateStatus(conversationId, status);
   }
 
+  async processInboundEvent(event: RuleEngineEvent): Promise<RuleEngineResult> {
+    return ruleEngine.processEvent(event);
+  }
+
   subscribeToNewMessages(callback: (message: Message) => void): () => void {
     if (typeof repositoryManager.conversation.subscribeToNewMessages === 'function') {
       return repositoryManager.conversation.subscribeToNewMessages(callback);
+    }
+    return () => {};
+  }
+
+  subscribeToInboxEvents(callbacks: RealtimeInboxCallbacks): () => void {
+    if (typeof repositoryManager.conversation.subscribeToInboxEvents === 'function') {
+      return repositoryManager.conversation.subscribeToInboxEvents(callbacks);
+    } else if (typeof repositoryManager.conversation.subscribeToNewMessages === 'function' && callbacks.onNewMessage) {
+      return repositoryManager.conversation.subscribeToNewMessages(callbacks.onNewMessage);
     }
     return () => {};
   }

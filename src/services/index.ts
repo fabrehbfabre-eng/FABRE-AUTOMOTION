@@ -15,3 +15,4 @@ export * from './WhatsAppService';
 export * from './HealthCheckService';
 export * from './InstagramIngestionService';
 export * from './normalizers/WebhookNormalizer';
+export * from './engine';

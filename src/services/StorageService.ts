@@ -307,6 +307,7 @@ export const INITIAL_INTEGRATIONS: IntegrationCardConfig[] = [
 
 class StorageServiceImpl implements IStorageService {
   private keyPrefix = 'fabre_automation_';
+  private memoryStore = new Map<string, string>();
 
   async getStats(): Promise<DashboardStats> {
     const automations = (await this.getItem<Automation[]>('automations')) || INITIAL_AUTOMATIONS;
@@ -327,7 +328,12 @@ class StorageServiceImpl implements IStorageService {
 
   async getItem<T>(key: string): Promise<T | null> {
     try {
-      const data = localStorage.getItem(`${this.keyPrefix}${key}`);
+      let data: string | null = null;
+      if (typeof localStorage !== 'undefined') {
+        data = localStorage.getItem(`${this.keyPrefix}${key}`);
+      } else {
+        data = this.memoryStore.get(`${this.keyPrefix}${key}`) || null;
+      }
       return data ? (JSON.parse(data) as T) : null;
     } catch {
       return null;
@@ -336,7 +342,12 @@ class StorageServiceImpl implements IStorageService {
 
   async setItem<T>(key: string, value: T): Promise<void> {
     try {
-      localStorage.setItem(`${this.keyPrefix}${key}`, JSON.stringify(value));
+      const serialized = JSON.stringify(value);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(`${this.keyPrefix}${key}`, serialized);
+      } else {
+        this.memoryStore.set(`${this.keyPrefix}${key}`, serialized);
+      }
     } catch {
       // ignore storage errors
     }
@@ -344,7 +355,11 @@ class StorageServiceImpl implements IStorageService {
 
   async removeItem(key: string): Promise<void> {
     try {
-      localStorage.removeItem(`${this.keyPrefix}${key}`);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(`${this.keyPrefix}${key}`);
+      } else {
+        this.memoryStore.delete(`${this.keyPrefix}${key}`);
+      }
     } catch {
       // ignore storage errors
     }
