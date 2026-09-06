@@ -35,6 +35,10 @@ supabase/
     │   └── index.ts
     ├── whatsapp-webhook/           # Ingestão de mensagens da WhatsApp Business API
     │   └── index.ts
+    ├── meta-send-message/          # Envio outbound do operador (Fail-Closed)
+    │   └── index.ts
+    ├── meta-automation-send-message/ # Despacho outbound do Rule Engine (Bot)
+    │   └── index.ts
     └── ai-completion/              # Pipeline de IA (desativada nesta Release)
         └── index.ts
 ```
@@ -48,6 +52,8 @@ supabase/
 | **`health-check`** | `/functions/v1/health-check` | `false` | `GET` | Diagnóstico de conectividade DB e runtime Deno |
 | **`meta-webhook`** | `/functions/v1/meta-webhook` | `false` | `GET, POST` | Handshake Meta e Ingestão do Instagram Direct |
 | **`whatsapp-webhook`** | `/functions/v1/whatsapp-webhook` | `false` | `GET, POST` | Handshake Meta e Ingestão do WhatsApp Cloud |
+| **`meta-send-message`** | `/functions/v1/meta-send-message` | `false` | `POST` | Envio outbound manual do operador (Fail-Closed) |
+| **`meta-automation-send-message`** | `/functions/v1/meta-automation-send-message` | `false` | `POST` | Despacho outbound automático do motor de regras |
 | **`ai-completion`** | `/functions/v1/ai-completion` | `false` | `POST` | Processamento de IA (desativada na Release 6) |
 
 ---
@@ -109,6 +115,12 @@ supabase functions deploy whatsapp-webhook --no-verify-jwt
 
 # 4. AI Completion
 supabase functions deploy ai-completion --no-verify-jwt
+
+# 5. Meta Send Message (Operador Fail-Closed)
+supabase functions deploy meta-send-message --no-verify-jwt
+
+# 6. Meta Automation Send Message (Robô / Rule Engine)
+supabase functions deploy meta-automation-send-message --no-verify-jwt
 ```
 
 Ou execute o script automatizado:

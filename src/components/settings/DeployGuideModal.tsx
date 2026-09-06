@@ -57,12 +57,28 @@ export const DeployGuideModal: React.FC<DeployGuideModalProps> = ({
       description: 'Handshake e ingestão de mensagens da WhatsApp Business Cloud API',
     },
     {
+      name: 'meta-send-message',
+      path: '/supabase/functions/meta-send-message',
+      endpoint: `${supabaseConfig.url || 'https://seu-projeto.supabase.co'}/functions/v1/meta-send-message`,
+      verifyJwt: false,
+      status: backendAvailable ? 'deployed' : 'ready_for_deploy',
+      description: 'Envio outbound oficial do operador para WhatsApp Cloud API com autorização Fail-Closed',
+    },
+    {
+      name: 'meta-automation-send-message',
+      path: '/supabase/functions/meta-automation-send-message',
+      endpoint: `${supabaseConfig.url || 'https://seu-projeto.supabase.co'}/functions/v1/meta-automation-send-message`,
+      verifyJwt: false,
+      status: backendAvailable ? 'deployed' : 'ready_for_deploy',
+      description: 'Despacho outbound automático do Rule Engine (Bot) para WhatsApp Business Cloud API',
+    },
+    {
       name: 'ai-completion',
       path: '/supabase/functions/ai-completion',
       endpoint: `${supabaseConfig.url || 'https://seu-projeto.supabase.co'}/functions/v1/ai-completion`,
       verifyJwt: false,
       status: backendAvailable ? 'deployed' : 'ready_for_deploy',
-      description: 'Pipeline de IA preparada (Explicitamente DESATIVADA na Release 9)',
+      description: 'Pipeline de IA preparada (Explicitamente DESATIVADA nesta Release)',
     },
   ];
 
@@ -74,11 +90,13 @@ supabase login
 # 2. Vincular ao seu projeto Supabase
 supabase link --project-ref ${projectRef}
 
-# 3. Publicar as 4 Edge Functions
+# 3. Publicar as 6 Edge Functions
 supabase functions deploy health-check --no-verify-jwt
 supabase functions deploy meta-webhook --no-verify-jwt
 supabase functions deploy whatsapp-webhook --no-verify-jwt
-supabase functions deploy ai-completion --no-verify-jwt`;
+supabase functions deploy ai-completion --no-verify-jwt
+supabase functions deploy meta-send-message --no-verify-jwt
+supabase functions deploy meta-automation-send-message --no-verify-jwt`;
 
   const secretsCommand = `# Configurar secrets das Edge Functions no Supabase:
 supabase secrets set \\
@@ -86,6 +104,7 @@ supabase secrets set \\
   META_APP_SECRET="sua_chave_secreta_meta" \\
   META_WEBHOOK_VERIFY_TOKEN="seu_token_de_verificacao" \\
   WHATSAPP_ACCESS_TOKEN="seu_token_whatsapp" \\
+  WHATSAPP_PHONE_NUMBER_ID="seu_phone_number_id" \\
   OPENAI_API_KEY="sk-..."`;
 
   return (

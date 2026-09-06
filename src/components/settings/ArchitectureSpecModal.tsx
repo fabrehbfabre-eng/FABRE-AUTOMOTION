@@ -127,7 +127,7 @@ export const ArchitectureSpecModal: React.FC<ArchitectureSpecModalProps> = ({
               </span>
               <div className="text-[11px]">
                 <strong className="text-neutral-200 block">Edge Functions Deployment Readiness & Server-Side Certification</strong>
-                <span className="text-neutral-400">Auditoria server-side das 4 Edge Functions (health-check, meta-webhook, whatsapp-webhook, ai-completion), isolamento total de secrets e guia CLI.</span>
+                <span className="text-neutral-400">Auditoria server-side das 6 Edge Functions (health-check, meta-webhook, whatsapp-webhook, meta-send-message, meta-automation-send-message, ai-completion), isolamento total de secrets e guia CLI.</span>
               </div>
             </div>
           </div>

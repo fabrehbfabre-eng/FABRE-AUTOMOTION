@@ -29,7 +29,7 @@ export class MockAutomationRepository implements IAutomationRepository {
     const now = new Date().toISOString();
     const newAuto: Automation = {
       ...data,
-      id: `auto_demo_${Date.now()}`,
+      id: (data as Partial<Automation>).id || `auto_demo_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       executionCount: 0,
       createdAt: now,
       updatedAt: now,

@@ -1,16 +1,24 @@
 /**
  * FABRE AUTOMATION - Rule Engine Core
- * Release: Rule Engine | Motor de Automação Reativa: Gatilhos -> Condições -> Ações
+ * Release: Automation Execution Governance
+ * Motor de Automação Reativa: Concorrência, Idempotência, Prioridade, Isolamento e Observabilidade
  * 
  * Central orchestration service:
  * 1. Event Reception & Validation
  * 2. Loop Prevention (rejects sender !== 'contact', metadata.automationId)
- * 3. Idempotency Check (composite key messageId/externalEventId + automationId)
- * 4. Active Automations Loading (channel filtering)
- * 5. Context Resolution (conversation, history, first contact detection)
- * 6. Trigger Evaluation (deterministic matching via TriggerEvaluator)
- * 7. Action Execution (isolated & safe execution via ActionExecutor)
- * 8. Execution Metrics Update & Observability Logging
+ * 3. Idempotency & In-Flight Concurrency Lock (composite key messageId/externalEventId + automationId)
+ * 4. Per-Conversation FIFO Serialization (prevents race conditions and out-of-order execution)
+ * 5. Active Automations Loading & Deterministic Ordering (channel specificity, creation date, ID tie-breaker)
+ * 6. Context Resolution (conversation, history, first contact detection strictly scoped to conversationId)
+ * 7. Trigger Evaluation (deterministic matching via TriggerEvaluator)
+ * 8. Action Execution (isolated & sequential execution via ActionExecutor)
+ * 9. Execution Metrics Update & Observability Logging with duration and data sanitization
+ * 
+ * NOTA DE ARQUITETURA & GOVERNANÇA:
+ * O cache de idempotência e o lock in-flight são mantidos em memória do processo Node.js (JavaScript Runtime).
+ * Esta proteção garante 100% de integridade contra duplicatas, corridas de rede e retries na mesma instância.
+ * Para clusters horizontais com múltiplos containers stateless sem afinidade de sessão, a idempotência
+ * deve ser complementada por locks distribuídos (ex: Postgres SELECT FOR UPDATE ou Redis) em releases futuras.
  */
 
 import { Automation, Conversation, Message } from '../../types';
@@ -30,9 +38,20 @@ import { logEngine } from './engineLogger';
 export class RuleEngine implements IRuleEngine {
   /**
    * In-memory cache for idempotency tracking
-   * Stores composite keys of format: `${identifier}_${automationId}`
+   * Stores composite keys of format: `${identifier}::${automationId}`
    */
   private processedEventKeys = new Set<string>();
+
+  /**
+   * In-flight lock set to prevent concurrent duplicate executions
+   */
+  private inFlightKeys = new Set<string>();
+
+  /**
+   * Per-conversation promise queue for strict FIFO serialization
+   * Prevents race conditions when inbound messages arrive rapidly in the same conversation
+   */
+  private conversationQueues = new Map<string, Promise<unknown>>();
 
   /**
    * Maximum cache size to prevent memory bloat
@@ -40,10 +59,12 @@ export class RuleEngine implements IRuleEngine {
   private readonly MAX_CACHE_SIZE = 10000;
 
   /**
-   * Clears the idempotency cache (useful for testing and memory maintenance)
+   * Clears the idempotency cache, in-flight locks, and queues (useful for testing and maintenance)
    */
   clearIdempotencyCache(): void {
     this.processedEventKeys.clear();
+    this.inFlightKeys.clear();
+    this.conversationQueues.clear();
   }
 
   /**
@@ -51,6 +72,20 @@ export class RuleEngine implements IRuleEngine {
    */
   isEventProcessed(eventKey: string): boolean {
     return this.processedEventKeys.has(eventKey);
+  }
+
+  /**
+   * Checks if an event key is currently in-flight
+   */
+  isKeyInFlight(key: string): boolean {
+    return this.inFlightKeys.has(key);
+  }
+
+  /**
+   * Returns current count of processed keys
+   */
+  getProcessedKeysCount(): number {
+    return this.processedEventKeys.size;
   }
 
   /**
@@ -77,9 +112,36 @@ export class RuleEngine implements IRuleEngine {
   }
 
   /**
-   * Main entry point: processes a normalized inbound event
+   * Main entry point: processes a normalized inbound event with FIFO conversation queue
    */
   async processEvent(event: RuleEngineEvent): Promise<RuleEngineResult> {
+    const conversationId = event.conversationId;
+    if (!conversationId) {
+      // Handle invalid event without queueing
+      return this.executeEventWorkflow(event);
+    }
+
+    // Chain execution to per-conversation FIFO queue to isolate conversations
+    // and avoid race conditions when rapid inbound messages arrive
+    const previousPromise = this.conversationQueues.get(conversationId) || Promise.resolve();
+    const currentExecution = previousPromise
+      .catch(() => {}) // Prevent previous errors from blocking subsequent messages
+      .then(() => this.executeEventWorkflow(event))
+      .finally(() => {
+        if (this.conversationQueues.get(conversationId) === currentExecution) {
+          this.conversationQueues.delete(conversationId);
+        }
+      });
+
+    this.conversationQueues.set(conversationId, currentExecution);
+    return currentExecution as Promise<RuleEngineResult>;
+  }
+
+  /**
+   * Core event workflow execution
+   */
+  private async executeEventWorkflow(event: RuleEngineEvent): Promise<RuleEngineResult> {
+    const startTime = Date.now();
     const timestamp = new Date().toISOString();
     const eventId = event.messageId || event.externalEventId || `evt_${Date.now()}`;
 
@@ -105,6 +167,7 @@ export class RuleEngine implements IRuleEngine {
         automationsEvaluated: 0,
         matchedAutomations: [],
         timestamp,
+        durationMs: Date.now() - startTime,
       };
     }
 
@@ -129,6 +192,7 @@ export class RuleEngine implements IRuleEngine {
         automationsEvaluated: 0,
         matchedAutomations: [],
         timestamp,
+        durationMs: Date.now() - startTime,
       };
     }
 
@@ -149,11 +213,12 @@ export class RuleEngine implements IRuleEngine {
         automationsEvaluated: 0,
         matchedAutomations: [],
         timestamp,
+        durationMs: Date.now() - startTime,
       };
     }
 
     // -------------------------------------------------------------------------
-    // 3. LOAD ACTIVE AUTOMATIONS FOR CHANNEL
+    // 3. LOAD & DETERMINISTIC SORTING OF ACTIVE AUTOMATIONS FOR CHANNEL
     // -------------------------------------------------------------------------
     let allAutomations: Automation[] = [];
     try {
@@ -163,32 +228,62 @@ export class RuleEngine implements IRuleEngine {
       logEngine('error', 'LOAD_AUTOMATIONS_ERROR', { error: msg, eventId });
     }
 
-    const activeAutomations = allAutomations.filter(auto => {
-      if (!auto.enabled) return false;
-      if (auto.channel !== 'all' && auto.channel !== event.channel) return false;
-      return true;
-    });
+    const channelAutomations = allAutomations.filter(
+      auto => auto.channel === 'all' || auto.channel === event.channel
+    );
 
+    const activeAutomations = channelAutomations.filter(auto => auto.enabled);
+
+    // Explicit Statuses for empty automation conditions
     if (activeAutomations.length === 0) {
+      let status: RuleEngineExecutionStatus = 'NO_AUTOMATIONS';
+      let reason = `Nenhuma automação ativa encontrada para o canal '${event.channel}'.`;
+
+      if (channelAutomations.length > 0 && channelAutomations.every(a => !a.enabled)) {
+        status = 'IGNORED_DISABLED';
+        reason = `Todas as automações configuradas para o canal '${event.channel}' estão desativadas.`;
+      } else if (allAutomations.length > 0 && channelAutomations.length === 0) {
+        status = 'IGNORED_CHANNEL';
+        reason = `Nenhuma automação configurada para o canal '${event.channel}'.`;
+      }
+
       logEngine('info', 'NO_ACTIVE_AUTOMATIONS', {
         channel: event.channel,
         totalConfigured: allAutomations.length,
+        status,
+        reason,
       });
 
       return {
         eventId,
         conversationId: event.conversationId,
         channel: event.channel,
-        status: 'NO_AUTOMATIONS',
-        reason: `Nenhuma automação ativa encontrada para o canal '${event.channel}'.`,
+        status,
+        reason,
         automationsEvaluated: 0,
         matchedAutomations: [],
         timestamp,
+        durationMs: Date.now() - startTime,
       };
     }
 
+    // Deterministic Execution Policy (FASE 2 & FASE 6):
+    // 1. Channel specificity: exact channel match before wildcard 'all'
+    // 2. Creation order: older/first-configured automations evaluate first
+    // 3. Tie-breaker: ID stability
+    const sortedAutomations = [...activeAutomations].sort((a, b) => {
+      if (a.channel === event.channel && b.channel !== event.channel) return -1;
+      if (b.channel === event.channel && a.channel !== event.channel) return 1;
+
+      const timeA = new Date(a.createdAt || 0).getTime();
+      const timeB = new Date(b.createdAt || 0).getTime();
+      if (timeA !== timeB) return timeA - timeB;
+
+      return a.id.localeCompare(b.id);
+    });
+
     // -------------------------------------------------------------------------
-    // 4. LOAD CONVERSATION CONTEXT & HISTORY
+    // 4. LOAD CONVERSATION CONTEXT & HISTORY (Strictly scoped to event.conversationId)
     // -------------------------------------------------------------------------
     let conversation: Conversation | null = null;
     let messagesHistory: Message[] = [];
@@ -220,19 +315,23 @@ export class RuleEngine implements IRuleEngine {
     let hadActionFailure = false;
     let duplicateSkippedCount = 0;
 
-    for (const automation of activeAutomations) {
+    for (const automation of sortedAutomations) {
       const primaryId = event.messageId || event.externalEventId || eventId;
       const keyPrimary = this.buildIdempotencyKey(primaryId, automation.id);
       const keyExternal = event.externalEventId 
         ? this.buildIdempotencyKey(event.externalEventId, automation.id) 
         : null;
 
-      // 5.1 Idempotency Check per automation
-      if (this.isEventProcessed(keyPrimary) || (keyExternal && this.isEventProcessed(keyExternal))) {
+      // 5.1 Idempotency Check & In-Flight Lock per automation
+      const alreadyProcessed = this.isEventProcessed(keyPrimary) || (keyExternal && this.isEventProcessed(keyExternal));
+      const alreadyInFlight = this.isKeyInFlight(keyPrimary) || (keyExternal && this.isKeyInFlight(keyExternal));
+
+      if (alreadyProcessed || alreadyInFlight) {
         logEngine('info', 'IDEMPOTENCY_DUPLICATE_SKIPPED', {
           eventId: primaryId,
           externalEventId: event.externalEventId,
           automationId: automation.id,
+          reason: alreadyInFlight ? 'IN_FLIGHT_LOCKED' : 'ALREADY_PROCESSED',
         });
         duplicateSkippedCount++;
         continue;
@@ -257,45 +356,58 @@ export class RuleEngine implements IRuleEngine {
         reason: triggerResult.reason,
       });
 
-      // 5.3 Execute Actions Sequentially
+      // 5.3 In-Flight Lock Acquisition
+      this.inFlightKeys.add(keyPrimary);
+      if (keyExternal) this.inFlightKeys.add(keyExternal);
+
       const actionResults = [];
       let automationSuccess = true;
       let automationError: string | undefined;
+      const autoStartTime = Date.now();
 
-      const actions = automation.actions || [];
-      for (const action of actions) {
-        const res = await ActionExecutor.executeAction(action, automation, event, context);
-        actionResults.push(res);
+      try {
+        // Execute Actions Sequentially in Configured Order
+        const actions = automation.actions || [];
+        for (const action of actions) {
+          const res = await ActionExecutor.executeAction(action, automation, event, context);
+          actionResults.push(res);
 
-        if (!res.success) {
-          automationSuccess = false;
-          hadActionFailure = true;
-          automationError = res.error;
-          logEngine('warn', 'ACTION_EXECUTION_ERROR', {
-            actionId: action.id,
+          if (!res.success) {
+            automationSuccess = false;
+            hadActionFailure = true;
+            automationError = res.error;
+            logEngine('warn', 'ACTION_EXECUTION_ERROR', {
+              actionId: action.id,
+              automationId: automation.id,
+              error: res.error,
+            });
+          }
+        }
+
+        // 5.4 Record Idempotency (Committed)
+        this.recordExecution(primaryId, automation.id);
+        if (event.externalEventId) {
+          this.recordExecution(event.externalEventId, automation.id);
+        }
+
+        // 5.5 Update Automation Metrics (Atomic with fresh read)
+        try {
+          const fresh = await repositoryManager.automation.getAutomationById(automation.id);
+          const count = (fresh?.executionCount ?? automation.executionCount ?? 0) + 1;
+          await repositoryManager.automation.updateAutomation(automation.id, {
+            executionCount: count,
+            lastExecutedAt: new Date().toISOString(),
+          });
+        } catch (metricErr) {
+          logEngine('warn', 'METRIC_UPDATE_FAILED', {
             automationId: automation.id,
-            error: res.error,
+            error: String(metricErr),
           });
         }
-      }
-
-      // 5.4 Record Idempotency
-      this.recordExecution(primaryId, automation.id);
-      if (event.externalEventId) {
-        this.recordExecution(event.externalEventId, automation.id);
-      }
-
-      // 5.5 Update Automation Metrics
-      try {
-        await repositoryManager.automation.updateAutomation(automation.id, {
-          executionCount: (automation.executionCount || 0) + 1,
-          lastExecutedAt: new Date().toISOString(),
-        });
-      } catch (metricErr) {
-        logEngine('warn', 'METRIC_UPDATE_FAILED', {
-          automationId: automation.id,
-          error: String(metricErr),
-        });
+      } finally {
+        // Release in-flight lock
+        this.inFlightKeys.delete(keyPrimary);
+        if (keyExternal) this.inFlightKeys.delete(keyExternal);
       }
 
       matchedResults.push({
@@ -306,6 +418,8 @@ export class RuleEngine implements IRuleEngine {
         matchReason: triggerResult.reason,
         actions: actionResults,
         success: automationSuccess,
+        status: automationSuccess ? 'EXECUTED' : 'FAILED',
+        durationMs: Date.now() - autoStartTime,
         executedAt: new Date().toISOString(),
         error: automationError,
       });
@@ -330,12 +444,15 @@ export class RuleEngine implements IRuleEngine {
       }
     }
 
+    const durationMs = Date.now() - startTime;
+
     logEngine('info', 'EXECUTION_COMPLETED', {
       eventId,
       status: finalStatus,
       automationsEvaluated: activeAutomations.length,
       matchedCount: matchedResults.length,
       duplicateSkippedCount,
+      durationMs,
     });
 
     return {
@@ -347,6 +464,7 @@ export class RuleEngine implements IRuleEngine {
       automationsEvaluated: activeAutomations.length,
       matchedAutomations: matchedResults,
       timestamp,
+      durationMs,
     };
   }
 

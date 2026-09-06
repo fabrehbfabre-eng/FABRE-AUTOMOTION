@@ -209,9 +209,17 @@ export class HealthCheckService {
         name: 'meta-send-message',
         path: '/supabase/functions/meta-send-message',
         endpoint: supabaseConfig.url ? `${supabaseConfig.url}/functions/v1/meta-send-message` : '/functions/v1/meta-send-message',
-        verifyJwt: true,
+        verifyJwt: false,
         status: backendStatus === 'deployed' ? 'deployed' : 'ready_for_deploy',
-        description: 'Envio outbound oficial do operador para WhatsApp Business Cloud API com segurança server-side',
+        description: 'Envio outbound oficial do operador para WhatsApp Business Cloud API com autorização Fail-Closed',
+      },
+      {
+        name: 'meta-automation-send-message',
+        path: '/supabase/functions/meta-automation-send-message',
+        endpoint: supabaseConfig.url ? `${supabaseConfig.url}/functions/v1/meta-automation-send-message` : '/functions/v1/meta-automation-send-message',
+        verifyJwt: false,
+        status: backendStatus === 'deployed' ? 'deployed' : 'ready_for_deploy',
+        description: 'Despacho outbound automatizado do Rule Engine (Bot) para WhatsApp Business Cloud API',
       },
       {
         name: 'ai-completion',
@@ -219,7 +227,7 @@ export class HealthCheckService {
         endpoint: supabaseConfig.url ? `${supabaseConfig.url}/functions/v1/ai-completion` : '/functions/v1/ai-completion',
         verifyJwt: false,
         status: backendStatus === 'deployed' ? 'deployed' : 'ready_for_deploy',
-        description: 'Pipeline de IA preparada (Explicitamente DESATIVADA na Release 9)',
+        description: 'Pipeline de IA preparada (Explicitamente DESATIVADA nesta Release)',
       },
     ];
 

@@ -142,7 +142,20 @@ serve(async (req: Request) => {
     // 7. Fetch and Validate Automation & Action (Fail-Closed)
     const { data: automation, error: autoErr } = await supabase
       .from("automations")
-      .select("id, title, channel, enabled, actions")
+      .select(`
+        id,
+        title,
+        channel,
+        enabled,
+        automation_actions (
+          id,
+          type,
+          name,
+          description,
+          config,
+          sort_order
+        )
+      `)
       .eq("id", automationId.trim())
       .single();
 
@@ -175,16 +188,8 @@ serve(async (req: Request) => {
     }
 
     // Validate Action
-    let actionsList: any[] = [];
-    if (Array.isArray(automation.actions)) {
-      actionsList = automation.actions;
-    } else if (typeof automation.actions === "string") {
-      try {
-        actionsList = JSON.parse(automation.actions);
-      } catch {
-        actionsList = [];
-      }
-    }
+    const rawActions = (automation as any).automation_actions;
+    const actionsList: any[] = Array.isArray(rawActions) ? rawActions : [];
 
     const matchedAction = actionsList.find((a: any) => a.id === actionId);
     if (!matchedAction) {

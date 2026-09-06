@@ -34,3 +34,9 @@ verify_jwt = false
 
 [functions.ai-completion]
 verify_jwt = false
+
+[functions.meta-send-message]
+verify_jwt = false
+
+[functions.meta-automation-send-message]
+verify_jwt = false
