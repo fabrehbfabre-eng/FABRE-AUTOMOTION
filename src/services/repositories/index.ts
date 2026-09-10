@@ -12,16 +12,19 @@ import { IConversationRepository } from './IConversationRepository';
 import { IAutomationRepository } from './IAutomationRepository';
 import { IKnowledgeRepository } from './IKnowledgeRepository';
 import { IChannelRepository } from './IChannelRepository';
+import { IAutomationJobRepository } from './IAutomationJobRepository';
 
 import { MockConversationRepository } from './mock/MockConversationRepository';
 import { MockAutomationRepository } from './mock/MockAutomationRepository';
 import { MockKnowledgeRepository } from './mock/MockKnowledgeRepository';
 import { MockChannelRepository } from './mock/MockChannelRepository';
+import { MockAutomationJobRepository } from './mock/MockAutomationJobRepository';
 
 import { SupabaseConversationRepository } from './supabase/SupabaseConversationRepository';
 import { SupabaseAutomationRepository } from './supabase/SupabaseAutomationRepository';
 import { SupabaseKnowledgeRepository } from './supabase/SupabaseKnowledgeRepository';
 import { SupabaseChannelRepository } from './supabase/SupabaseChannelRepository';
+import { SupabaseAutomationJobRepository } from './supabase/SupabaseAutomationJobRepository';
 
 export type StorageProviderType = 'supabase' | 'mock';
 
@@ -32,11 +35,13 @@ class RepositoryManager {
   private mockAuto = new MockAutomationRepository();
   private mockKb = new MockKnowledgeRepository();
   private mockChan = new MockChannelRepository();
+  private mockJob = new MockAutomationJobRepository();
 
   private supabaseConv = new SupabaseConversationRepository();
   private supabaseAuto = new SupabaseAutomationRepository();
   private supabaseKb = new SupabaseKnowledgeRepository();
   private supabaseChan = new SupabaseChannelRepository();
+  private supabaseJob = new SupabaseAutomationJobRepository();
 
   setProvider(provider: StorageProviderType | null): void {
     this.forcedProvider = provider;
@@ -62,6 +67,10 @@ class RepositoryManager {
   get channel(): IChannelRepository {
     return this.getProvider() === 'supabase' ? this.supabaseChan : this.mockChan;
   }
+
+  get job(): IAutomationJobRepository {
+    return this.getProvider() === 'supabase' ? this.supabaseJob : this.mockJob;
+  }
 }
 
 export const repositoryManager = new RepositoryManager();
@@ -71,8 +80,10 @@ export {
   MockAutomationRepository,
   MockKnowledgeRepository,
   MockChannelRepository,
+  MockAutomationJobRepository,
   SupabaseConversationRepository,
   SupabaseAutomationRepository,
   SupabaseKnowledgeRepository,
   SupabaseChannelRepository,
+  SupabaseAutomationJobRepository,
 };

@@ -260,7 +260,21 @@ export class AutomationOutboundDispatcher {
         functionName: 'meta-automation-send-message',
       });
 
+      // Attach Authorization Bearer token from active operator session
+      let headers: Record<string, string> | undefined = undefined;
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.access_token) {
+          headers = {
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+          };
+        }
+      } catch {
+        // Fallback to client default headers
+      }
+
       const { data, error } = await supabase.functions.invoke('meta-automation-send-message', {
+        headers,
         body: {
           conversationId,
           automationId,

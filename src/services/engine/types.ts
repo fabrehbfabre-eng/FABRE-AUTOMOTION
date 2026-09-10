@@ -73,6 +73,9 @@ export interface ActionExecutionResult {
   createdMessageId?: string;
   error?: string;
   output?: Record<string, unknown>;
+  scheduled?: boolean;
+  jobId?: string;
+  scheduledFor?: string;
   status?: 'EXECUTED' | 'BLOCKED' | 'FAILED' | 'DUPLICATE' | 'UNSUPPORTED_CHANNEL' | 'PROVIDER_REJECTED';
   dispatchStatus?: 'EXECUTED' | 'BLOCKED' | 'FAILED' | 'DUPLICATE' | 'UNSUPPORTED_CHANNEL' | 'PROVIDER_REJECTED' | 'SKIPPED';
   wamid?: string;

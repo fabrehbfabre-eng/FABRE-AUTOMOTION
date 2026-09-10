@@ -32,6 +32,7 @@ import {
 } from './types';
 import { TriggerEvaluator } from './TriggerEvaluator';
 import { ActionExecutor } from './ActionExecutor';
+import { InactiveFollowupEngine } from './InactiveFollowupEngine';
 import { repositoryManager } from '../repositories';
 import { logEngine } from './engineLogger';
 
@@ -217,6 +218,19 @@ export class RuleEngine implements IRuleEngine {
       };
     }
 
+    // Customer sent a new message: invalidate/cancel any pending inactive follow-ups for this conversation
+    try {
+      await InactiveFollowupEngine.cancelPendingFollowups(
+        event.conversationId,
+        'Cancelado: nova mensagem recebida do cliente'
+      );
+    } catch (cancelErr) {
+      logEngine('warn', 'CANCEL_PENDING_FOLLOWUPS_WARNING', {
+        conversationId: event.conversationId,
+        error: cancelErr instanceof Error ? cancelErr.message : String(cancelErr),
+      });
+    }
+
     // -------------------------------------------------------------------------
     // 3. LOAD & DETERMINISTIC SORTING OF ACTIVE AUTOMATIONS FOR CHANNEL
     // -------------------------------------------------------------------------
@@ -366,21 +380,55 @@ export class RuleEngine implements IRuleEngine {
       const autoStartTime = Date.now();
 
       try {
-        // Execute Actions Sequentially in Configured Order
-        const actions = automation.actions || [];
-        for (const action of actions) {
-          const res = await ActionExecutor.executeAction(action, automation, event, context);
-          actionResults.push(res);
+        if (automation.trigger?.type === 'inactive_followup') {
+          // Inactive Follow-Up: Schedule durable job for future execution instead of immediate action dispatch
+          const followupSchedule = await InactiveFollowupEngine.scheduleFollowupJob({
+            automation,
+            event,
+            context,
+          });
 
-          if (!res.success) {
+          if (followupSchedule) {
+            const firstAction = automation.actions?.[0];
+            actionResults.push({
+              actionId: firstAction?.id || 'act_inactive_followup',
+              actionType: 'delay',
+              actionName: firstAction?.name || 'Agendamento de Follow-up Inativo',
+              success: true,
+              executedAt: new Date().toISOString(),
+              scheduled: true,
+              jobId: followupSchedule.job.id,
+              scheduledFor: followupSchedule.scheduledAt,
+              message: `Follow-up de inatividade agendado com sucesso para ${followupSchedule.scheduledAt} (${followupSchedule.inactivityMinutes}m).`,
+              output: {
+                jobId: followupSchedule.job.id,
+                scheduledAt: followupSchedule.scheduledAt,
+                inactivityMinutes: followupSchedule.inactivityMinutes,
+                idempotencyKey: followupSchedule.idempotencyKey,
+              },
+            });
+          } else {
             automationSuccess = false;
             hadActionFailure = true;
-            automationError = res.error;
-            logEngine('warn', 'ACTION_EXECUTION_ERROR', {
-              actionId: action.id,
-              automationId: automation.id,
-              error: res.error,
-            });
+            automationError = 'Falha ao agendar job de follow-up de inatividade.';
+          }
+        } else {
+          // Execute Actions Sequentially in Configured Order
+          const actions = automation.actions || [];
+          for (const action of actions) {
+            const res = await ActionExecutor.executeAction(action, automation, event, context);
+            actionResults.push(res);
+
+            if (!res.success) {
+              automationSuccess = false;
+              hadActionFailure = true;
+              automationError = res.error;
+              logEngine('warn', 'ACTION_EXECUTION_ERROR', {
+                actionId: action.id,
+                automationId: automation.id,
+                error: res.error,
+              });
+            }
           }
         }
 

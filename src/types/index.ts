@@ -108,6 +108,7 @@ export interface AutomationTrigger {
     postUrl?: string;
     postId?: string;
     inactivityHours?: number;
+    inactivityMinutes?: number;
     [key: string]: unknown;
   };
 }
@@ -212,3 +213,5 @@ export interface DashboardStats {
   };
   recentConversations: Conversation[];
 }
+
+export * from './jobs';

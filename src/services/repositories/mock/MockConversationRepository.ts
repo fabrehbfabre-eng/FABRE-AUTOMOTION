@@ -343,6 +343,7 @@ export class MockConversationRepository implements IConversationRepository {
   }
 
   async createMessage(data: {
+    id?: string;
     conversationId: string;
     sender: 'contact' | 'user' | 'bot' | 'system';
     channel: ChannelType;
@@ -352,9 +353,10 @@ export class MockConversationRepository implements IConversationRepository {
     externalEventId?: string;
     status?: 'sent' | 'delivered' | 'read' | 'failed';
     metadata?: Record<string, any>;
+    createdAt?: string;
   }): Promise<Message> {
     const newMsg: Message = {
-      id: `msg_ig_${Date.now()}`,
+      id: data.id || `msg_ig_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       conversationId: data.conversationId,
       sender: data.sender,
       channel: data.channel,
@@ -363,7 +365,7 @@ export class MockConversationRepository implements IConversationRepository {
       mediaUrl: data.mediaUrl,
       externalEventId: data.externalEventId,
       status: data.status || 'delivered',
-      createdAt: new Date().toISOString(),
+      createdAt: data.createdAt || new Date().toISOString(),
       metadata: data.metadata,
     };
 

@@ -12,8 +12,10 @@ import {
   Settings, 
   Cpu,
   Layers,
-  Sparkles
+  Sparkles,
+  LogOut
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 export type NavItemKey = 'dashboard' | 'conversations' | 'automations' | 'knowledge' | 'settings';
 
@@ -30,6 +32,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   unreadCount = 1,
   activeAutomationsCount = 2,
 }) => {
+  const { user, role, signOut, isAuthenticated } = useAuth();
+  const userInitials = user?.email ? user.email.substring(0, 2).toUpperCase() : 'CF';
+  const displayRole = role === 'admin' ? 'Administrador' : role === 'operator' ? 'Operador' : 'Autenticado';
   const navItems = [
     {
       key: 'dashboard' as NavItemKey,
@@ -155,19 +160,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </nav>
 
-      {/* User / Profile Footer */}
+      {/* User / Profile Footer with Logout */}
       <div className="p-4 border-t border-neutral-800/80 bg-neutral-950">
-        <div className="flex items-center gap-3 px-2 py-1.5">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-600 to-indigo-600 flex items-center justify-center text-white text-xs font-bold ring-2 ring-neutral-800">
-            CF
+        <div className="flex items-center justify-between gap-2 px-1">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-600 to-indigo-600 flex items-center justify-center text-white text-xs font-bold ring-2 ring-neutral-800 shrink-0">
+              {userInitials}
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-neutral-200 truncate" title={user?.email || 'Casal Fabre'}>
+                {user?.email ? user.email.split('@')[0] : 'Casal Fabre'}
+              </p>
+              <p className="text-[10px] text-neutral-400 truncate flex items-center gap-1">
+                <Sparkles size={10} className="text-cyan-400 shrink-0" />
+                <span className="truncate">{displayRole}</span>
+              </p>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-neutral-200 truncate">Casal Fabre</p>
-            <p className="text-[10px] text-neutral-400 truncate flex items-center gap-1">
-              <Sparkles size={10} className="text-cyan-400" />
-              Administrador
-            </p>
-          </div>
+          {isAuthenticated && (
+            <button
+              onClick={() => signOut()}
+              className="p-1.5 rounded-lg text-neutral-500 hover:text-rose-400 hover:bg-rose-950/30 border border-transparent hover:border-rose-900/40 transition-colors cursor-pointer shrink-0"
+              title="Encerrar Sessão (Sign Out)"
+            >
+              <LogOut size={15} />
+            </button>
+          )}
         </div>
       </div>
     </aside>

@@ -227,11 +227,45 @@ CREATE TRIGGER update_contact_notes_updated_at
 
 CREATE INDEX IF NOT EXISTS idx_contact_notes_contact ON public.contact_notes(contact_id);
 
+-- 3.12 AUTOMATION JOBS (Durable Scheduler & Delay Engine - Release 14)
+CREATE TABLE IF NOT EXISTS public.automation_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    automation_id UUID NOT NULL REFERENCES public.automations(id) ON DELETE CASCADE,
+    conversation_id UUID NOT NULL REFERENCES public.conversations(id) ON DELETE CASCADE,
+    action_id UUID NOT NULL REFERENCES public.automation_actions(id) ON DELETE CASCADE,
+    job_type TEXT NOT NULL DEFAULT 'delayed_action',
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
+    scheduled_at TIMESTAMPTZ NOT NULL,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    failed_at TIMESTAMPTZ,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    last_error TEXT,
+    idempotency_key TEXT UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS update_automation_jobs_updated_at ON public.automation_jobs;
+CREATE TRIGGER update_automation_jobs_updated_at
+    BEFORE UPDATE ON public.automation_jobs
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status_scheduled ON public.automation_jobs(status, scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_conversation_id ON public.automation_jobs(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_conversation_status ON public.automation_jobs(conversation_id, status);
+CREATE INDEX IF NOT EXISTS idx_jobs_type_status ON public.automation_jobs(job_type, status);
+CREATE INDEX IF NOT EXISTS idx_jobs_automation_id ON public.automation_jobs(automation_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_idempotency_key ON public.automation_jobs(idempotency_key);
+
 -- =====================================================
 -- 4. ROW LEVEL SECURITY (RLS) POLICIES
 -- =====================================================
 
--- Enable RLS on all 11 tables
+-- Enable RLS on all tables
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
@@ -243,6 +277,7 @@ ALTER TABLE public.channel_connections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.contact_tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.contact_tag_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.contact_notes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.automation_jobs ENABLE ROW LEVEL SECURITY;
 
 -- 4.1 Profiles Policies
 DROP POLICY IF EXISTS "Allow read profiles" ON public.profiles;
@@ -313,6 +348,10 @@ CREATE POLICY "Allow all tag assignments" ON public.contact_tag_assignments FOR 
 DROP POLICY IF EXISTS "Allow all contact notes" ON public.contact_notes;
 CREATE POLICY "Allow all contact notes" ON public.contact_notes FOR ALL USING (true);
 
+-- 4.10 Automation Jobs Policies
+DROP POLICY IF EXISTS "Allow all automation jobs" ON public.automation_jobs;
+CREATE POLICY "Allow all automation jobs" ON public.automation_jobs FOR ALL USING (true);
+
 -- =====================================================
 -- 5. INITIAL CHANNEL ENTRIES (Awaiting Connection)
 -- =====================================================
@@ -322,3 +361,39 @@ VALUES
     ('messenger', 'Facebook Messenger', 'awaiting_connection', 'Aguardando autenticação Meta Graph API'),
     ('whatsapp', 'WhatsApp Business Cloud API', 'awaiting_connection', 'Aguardando WhatsApp Cloud API Token')
 ON CONFLICT (channel) DO NOTHING;
+
+-- =====================================================
+-- 6. DURABLE SCHEDULER STORED PROCEDURES (Release 14)
+-- =====================================================
+
+-- Concurrency-safe atomic claim using FOR UPDATE SKIP LOCKED
+CREATE OR REPLACE FUNCTION public.claim_due_automation_jobs(
+    p_limit INT DEFAULT 10,
+    p_worker_id TEXT DEFAULT NULL
+)
+RETURNS SETOF public.automation_jobs
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH due_jobs AS (
+        SELECT id
+        FROM public.automation_jobs
+        WHERE status = 'pending'
+          AND scheduled_at <= NOW()
+        ORDER BY scheduled_at ASC
+        LIMIT p_limit
+        FOR UPDATE SKIP LOCKED
+    )
+    UPDATE public.automation_jobs j
+    SET 
+        status = 'processing',
+        started_at = NOW(),
+        attempts = j.attempts + 1,
+        updated_at = NOW()
+    FROM due_jobs
+    WHERE j.id = due_jobs.id
+    RETURNING j.*;
+END;
+$$;

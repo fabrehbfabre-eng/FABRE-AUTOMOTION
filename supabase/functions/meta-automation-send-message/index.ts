@@ -1,7 +1,7 @@
 // Supabase Edge Function: meta-automation-send-message
-// Release: Automation Outbound Dispatch | Fechamento do Ciclo Reativo
+// Release 13: Operator Authentication + Secure Automation Outbound
 // Secure server-side proxy for automated bot dispatch to Meta WhatsApp Business Cloud API.
-// Validates conversation, contact, automation rules, channel certification and Meta response.
+// Validates operator JWT, app_metadata.role, database action definition, channel certification, and Meta response.
 // Secrets (WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID) remain strictly server-side.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -24,7 +24,99 @@ serve(async (req: Request) => {
     return createErrorResponse(405, "Método não permitido. Utilize POST.", "METHOD_NOT_ALLOWED");
   }
 
-  // 3. Payload Parsing & Validation
+  // 3. Cryptographic JWT Authentication Check
+  // A public 'apikey' alone is NEVER accepted as operator identity.
+  // We require a valid 'Authorization: Bearer <jwt>' header.
+  const authHeader = req.headers.get("Authorization") || req.headers.get("authorization");
+  if (!authHeader || !authHeader.trim().toLowerCase().startsWith("bearer ")) {
+    logSecure("warn", {
+      service: "meta-automation-send-message",
+      action: "auth_check",
+      status: "warning",
+      message: "Rejeitada solicitação sem token Bearer de autorização",
+    });
+    return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+  }
+
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (!token) {
+    logSecure("warn", {
+      service: "meta-automation-send-message",
+      action: "auth_check",
+      status: "warning",
+      message: "Token Bearer vazio fornecido na requisição",
+    });
+    return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+  }
+
+  let user: any = null;
+  let supabase: any = null;
+
+  try {
+    supabase = getServerSupabaseClient();
+    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !authData?.user || !authData.user.id) {
+      logSecure("warn", {
+        service: "meta-automation-send-message",
+        action: "jwt_validation",
+        status: "warning",
+        message: `Validação do JWT falhou ou sessão expirada: ${authError?.message || "Usuário não encontrado"}`,
+      });
+      return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+    }
+
+    user = authData.user;
+
+    // Verify authenticated user role (reject 'anon' tokens or service tokens posing as users)
+    if (user.role !== "authenticated") {
+      logSecure("warn", {
+        service: "meta-automation-send-message",
+        action: "jwt_role_check",
+        status: "warning",
+        message: `Token com papel de usuário não autenticado: ${user.role}`,
+      });
+      return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+    }
+  } catch (authException: unknown) {
+    const errText = authException instanceof Error ? authException.message : String(authException);
+    logSecure("error", {
+      service: "meta-automation-send-message",
+      action: "auth_exception",
+      status: "error",
+      message: `Erro interno ao validar sessão do usuário: ${errText}`,
+    });
+    return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+  }
+
+  // 4. Operator Authorization Check (Fail-Closed)
+  // Security Policy: Authenticated does NOT mean Authorized.
+  // 1) We NEVER trust user.user_metadata for privileged actions (user-mutable).
+  // 2) We NEVER use automatic fallback to "operator" or any default role.
+  // 3) Role MUST be explicitly declared in server-managed app_metadata.
+  // 4) Allowed roles: "operator", "admin".
+  // 5) Explicitly reject: "viewer", unknown roles, missing roles, empty roles, disabled users.
+  const appRole = typeof user.app_metadata?.role === "string"
+    ? user.app_metadata.role.trim().toLowerCase()
+    : null;
+
+  const isExplicitlyAuthorized = appRole === "operator" || appRole === "admin";
+  const isDisabled = user.app_metadata?.disabled === true || user.app_metadata?.can_send_outbound === false;
+
+  if (!isExplicitlyAuthorized || isDisabled) {
+    logSecure("warn", {
+      service: "meta-automation-send-message",
+      action: "operator_authorization",
+      status: "warning",
+      userId: user.id,
+      appRole: appRole || "none",
+      message: `Acesso outbound automatizado rejeitado (403): Usuário autenticado (${user.id}) sem permissão de operador/admin (app_metadata.role: ${appRole || "ausente"}, disabled: ${Boolean(isDisabled)})`,
+    });
+    return createErrorResponse(403, "Usuário autenticado, mas sem permissão para executar esta operação.", "FORBIDDEN");
+  }
+
+  // 5. Payload Parsing & Sanitization
+  // Note: Executed strictly AFTER authentication and authorization have succeeded.
   let payload: Record<string, any>;
   try {
     payload = await req.json();
@@ -32,7 +124,7 @@ serve(async (req: Request) => {
     return createErrorResponse(400, "Corpo da requisição JSON inválido.", "INVALID_INPUT");
   }
 
-  const { conversationId, automationId, actionId, text, messageId, externalEventId } = payload;
+  const { conversationId, automationId, actionId, messageId, externalEventId } = payload;
 
   if (!conversationId || typeof conversationId !== "string" || !conversationId.trim()) {
     return createErrorResponse(400, "Campo obrigatório ausente ou inválido: conversationId.", "INVALID_INPUT");
@@ -46,31 +138,8 @@ serve(async (req: Request) => {
     return createErrorResponse(400, "Campo obrigatório ausente ou inválido: actionId.", "INVALID_INPUT");
   }
 
-  if (!text || typeof text !== "string" || !text.trim()) {
-    return createErrorResponse(400, "Campo obrigatório ausente ou inválido: text. Mensagens vazias não são permitidas.", "INVALID_INPUT");
-  }
-
-  const trimmedText = text.trim();
-  if (trimmedText.length > 4096) {
-    return createErrorResponse(400, "O tamanho da mensagem excede o limite máximo permitido de 4096 caracteres.", "INVALID_INPUT");
-  }
-
-  let supabase: any;
   try {
-    supabase = getServerSupabaseClient();
-  } catch (clientErr: unknown) {
-    const msg = clientErr instanceof Error ? clientErr.message : String(clientErr);
-    logSecure("error", {
-      service: "meta-automation-send-message",
-      action: "init_supabase_client",
-      status: "error",
-      message: `Falha ao instanciar cliente server-side: ${msg}`,
-    });
-    return createErrorResponse(500, "Falha interna de configuração do servidor de dados.", "INTERNAL_ERROR");
-  }
-
-  try {
-    // 4. Fetch Target Conversation
+    // 6. Fetch Target Conversation
     const { data: conversation, error: convErr } = await supabase
       .from("conversations")
       .select("id, contact_id, channel, status, handler")
@@ -89,7 +158,7 @@ serve(async (req: Request) => {
 
     const channel = conversation.channel;
 
-    // 5. Channel Certification Verification
+    // 7. Channel Certification Verification
     // Instagram & Messenger are not yet certified for automated outbound dispatch
     if (channel === "instagram" || channel === "messenger") {
       logSecure("warn", {
@@ -111,7 +180,7 @@ serve(async (req: Request) => {
       return createErrorResponse(400, `Canal não suportado para envio automatizado: ${channel}`, "INVALID_INPUT");
     }
 
-    // 6. Fetch and Validate Contact Profile
+    // 8. Fetch and Validate Contact Profile
     const { data: contact, error: contactErr } = await supabase
       .from("profiles")
       .select("id, name, username, phone, channel, metadata")
@@ -139,7 +208,9 @@ serve(async (req: Request) => {
       );
     }
 
-    // 7. Fetch and Validate Automation & Action (Fail-Closed)
+    // 9. Fetch and Validate Automation & Action from Database (Fail-Closed)
+    // Security Mandate: The 'text' provided by the caller is UNTRUSTED.
+    // The authoritative message text MUST be fetched directly from the database action record.
     const { data: automation, error: autoErr } = await supabase
       .from("automations")
       .select(`
@@ -149,6 +220,7 @@ serve(async (req: Request) => {
         enabled,
         automation_actions (
           id,
+          automation_id,
           type,
           name,
           description,
@@ -187,11 +259,11 @@ serve(async (req: Request) => {
       return createErrorResponse(400, `O canal configurado na automação (${automation.channel}) não corresponde à conversa.`, "INVALID_INPUT");
     }
 
-    // Validate Action
+    // Validate Action in DB
     const rawActions = (automation as any).automation_actions;
     const actionsList: any[] = Array.isArray(rawActions) ? rawActions : [];
 
-    const matchedAction = actionsList.find((a: any) => a.id === actionId);
+    const matchedAction = actionsList.find((a: any) => a.id === actionId.trim());
     if (!matchedAction) {
       logSecure("warn", {
         service: "meta-automation-send-message",
@@ -199,16 +271,45 @@ serve(async (req: Request) => {
         status: "warning",
         actionId,
         automationId,
-        message: `Ação não localizada na definição da automação`,
+        message: "Ação não localizada na definição da automação",
       });
       return createErrorResponse(400, `Ação ${actionId} não encontrada na automação ${automationId}.`, "INVALID_INPUT");
+    }
+
+    // Validate that action belongs to this automation
+    if (matchedAction.automation_id && matchedAction.automation_id !== automation.id) {
+      return createErrorResponse(400, `Ação ${actionId} não pertence à automação ${automationId}.`, "INVALID_INPUT");
     }
 
     if (matchedAction.type !== "send_message" && matchedAction.type !== "send_dm") {
       return createErrorResponse(400, `Tipo de ação incompatível para envio de mensagem: ${matchedAction.type}`, "INVALID_INPUT");
     }
 
-    // 8. Idempotency Check: Prevent duplicate dispatch for the same event
+    // Extract authoritative messageText from validated database action configuration
+    const actionConfig = (matchedAction.config && typeof matchedAction.config === "object")
+      ? matchedAction.config
+      : {};
+    const dbActionText = String(actionConfig.messageText || actionConfig.text || "").trim();
+
+    if (!dbActionText) {
+      logSecure("warn", {
+        service: "meta-automation-send-message",
+        action: "validate_action_text",
+        status: "warning",
+        actionId,
+        automationId,
+        message: "Texto da ação de envio não configurado ou vazio no banco de dados",
+      });
+      return createErrorResponse(400, "A ação de automação não possui texto de mensagem configurado no banco de dados.", "INVALID_INPUT");
+    }
+
+    if (dbActionText.length > 4096) {
+      return createErrorResponse(400, "O tamanho da mensagem configurado na automação excede o limite máximo permitido de 4096 caracteres.", "INVALID_INPUT");
+    }
+
+    const verifiedTextToSend = dbActionText;
+
+    // 10. Idempotency Check: Prevent duplicate dispatch for the same event
     if (messageId && typeof messageId === "string") {
       const { data: existingMsg } = await supabase
         .from("messages")
@@ -240,7 +341,7 @@ serve(async (req: Request) => {
       }
     }
 
-    // 9. Resolve WhatsApp Server-Side Credentials
+    // 11. Resolve WhatsApp Server-Side Credentials
     let phoneNumberId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID") || (contact.metadata as any)?.phone_number_id;
 
     if (!phoneNumberId) {
@@ -286,7 +387,8 @@ serve(async (req: Request) => {
       );
     }
 
-    // 10. Official Meta WhatsApp Cloud API Request
+    // 12. Official Meta WhatsApp Cloud API Request
+    // Dispatches ONLY the verified database action text
     const metaApiUrl = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`;
     const requestPayload = {
       messaging_product: "whatsapp",
@@ -295,7 +397,7 @@ serve(async (req: Request) => {
       type: "text",
       text: {
         preview_url: false,
-        body: trimmedText,
+        body: verifiedTextToSend,
       },
     };
 
@@ -325,7 +427,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // 11. Meta API Response Error Handling (Never simulate success on failure)
+    // 13. Meta API Response Error Handling (Never simulate success on failure)
     if (!metaRes.ok) {
       let metaErrorData: Record<string, any> = {};
       try {
@@ -369,18 +471,19 @@ serve(async (req: Request) => {
       );
     }
 
-    // 12. Parse Success Response & Extract wamid
+    // 14. Parse Success Response & Extract wamid
     const metaSuccessData = await metaRes.json();
     const wamid = metaSuccessData.messages?.[0]?.id || `wamid.auto_${Date.now()}`;
 
-    // 13. PostgreSQL Persistence of Automated Message
+    // 15. PostgreSQL Persistence of Automated Message
+    // Records operator_authorized_by to maintain full cryptographic audit trail
     const { data: insertedMsg, error: insertErr } = await supabase
       .from("messages")
       .insert({
         conversation_id: conversationId,
         sender: "bot",
         channel: "whatsapp",
-        content: trimmedText,
+        content: verifiedTextToSend,
         content_type: "text",
         status: "sent",
         external_event_id: wamid,
@@ -393,9 +496,10 @@ serve(async (req: Request) => {
           recipient: recipientPhone,
           phone_number_id: phoneNumberId,
           triggeredByMessageId: messageId || null,
-          external_event_id: externalEventId || null,
+          externalEventId: externalEventId || null,
           meta_message_id: wamid,
           sent_by: "automation_engine",
+          operator_authorized_by: user.id,
         },
       })
       .select()
@@ -416,7 +520,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // 14. Update Conversation Activity & Mark unread_count
+    // 16. Update Conversation Activity & Mark unread_count
     await supabase
       .from("conversations")
       .update({

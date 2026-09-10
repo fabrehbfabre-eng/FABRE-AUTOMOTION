@@ -95,17 +95,39 @@ export function validateTrigger(trigger: AutomationTrigger): void {
   }
 
   if (trigger.type === 'inactive_followup') {
+    const minutes = trigger.config?.inactivityMinutes;
     const hours = trigger.config?.inactivityHours;
-    if (
-      hours === undefined ||
-      hours === null ||
-      typeof hours !== 'number' ||
-      hours <= 0 ||
-      isNaN(hours)
-    ) {
+
+    if (minutes !== undefined) {
+      if (
+        minutes === null ||
+        typeof minutes !== 'number' ||
+        !Number.isFinite(minutes) ||
+        minutes <= 0 ||
+        minutes > 43200
+      ) {
+        throw new AutomationValidationError(
+          'Gatilho de inatividade exige tempo de inatividade em minutos maior que zero (máximo 43200 minutos).',
+          'trigger.inactivityMinutes'
+        );
+      }
+    } else if (hours !== undefined) {
+      if (
+        hours === null ||
+        typeof hours !== 'number' ||
+        !Number.isFinite(hours) ||
+        hours <= 0 ||
+        hours > 720
+      ) {
+        throw new AutomationValidationError(
+          'Gatilho de inatividade exige tempo de inatividade maior que zero.',
+          'trigger.inactivityHours'
+        );
+      }
+    } else {
       throw new AutomationValidationError(
-        'Gatilho de inatividade exige tempo de inatividade maior que zero.',
-        'trigger.inactivityHours'
+        'Gatilho de inatividade exige tempo de inatividade (inactivityMinutes) maior que zero.',
+        'trigger.inactivityMinutes'
       );
     }
   }

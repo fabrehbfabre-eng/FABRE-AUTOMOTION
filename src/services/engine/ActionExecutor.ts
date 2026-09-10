@@ -20,6 +20,7 @@ import { RuleEngineEvent, EvaluationContext, ActionExecutionResult } from './typ
 import { repositoryManager } from '../repositories';
 import { logEngine } from './engineLogger';
 import { AutomationOutboundDispatcher } from './AutomationOutboundDispatcher';
+import { DurableScheduler } from './DurableScheduler';
 
 export class ActionExecutor {
   /**
@@ -29,11 +30,53 @@ export class ActionExecutor {
     action: AutomationAction,
     automation: Automation,
     event: RuleEngineEvent,
-    context: EvaluationContext
+    context: EvaluationContext,
+    options?: { isScheduledExecution?: boolean }
   ): Promise<ActionExecutionResult> {
     const startTime = new Date().toISOString();
 
     try {
+      const rawDelaySeconds = Number(action.config?.delaySeconds) || 0;
+
+      // Real durable delay: If delaySeconds > 0 and not already being executed by scheduler worker,
+      // create a persistent automation job and return immediately without holding runtime process
+      if (rawDelaySeconds > 0 && !options?.isScheduledExecution) {
+        const job = await DurableScheduler.scheduleActionJob({
+          automation,
+          action,
+          event,
+          delaySeconds: rawDelaySeconds,
+        });
+
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          actionName: action.name || 'Ação com Atraso Agendado',
+          success: true,
+          executedAt: startTime,
+          scheduled: true,
+          jobId: job.id,
+          scheduledFor: job.scheduledAt,
+          message: `Ação agendada com sucesso para execução futura após ${rawDelaySeconds}s (${job.scheduledAt}).`,
+          output: { delaySeconds: rawDelaySeconds, jobId: job.id, scheduledAt: job.scheduledAt },
+        };
+      }
+
+      // If action is purely 'delay' with 0s or already satisfied by scheduler
+      if (action.type === 'delay') {
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          actionName: action.name || 'Atraso',
+          success: true,
+          executedAt: startTime,
+          message: rawDelaySeconds === 0
+            ? 'Atraso de 0s concluído imediatamente sem agendamento.'
+            : `Atraso programado de ${rawDelaySeconds}s cumprido pelo scheduler.`,
+          output: { delaySeconds: rawDelaySeconds },
+        };
+      }
+
       logEngine('info', 'ACTION_EXECUTION_START', {
         actionId: action.id,
         actionType: action.type,
@@ -57,9 +100,6 @@ export class ActionExecutor {
 
         case 'query_ai':
           return await this.executeQueryAI(action, automation, event);
-
-        case 'delay':
-          return await this.executeDelay(action);
 
         default:
           logEngine('warn', 'UNKNOWN_ACTION_TYPE', {
@@ -506,30 +546,5 @@ export class ActionExecutor {
         error: `Serviço de IA ou Base de Conhecimento indisponível: ${msg}`,
       };
     }
-  }
-
-  /**
-   * Executes delay action
-   */
-  private static async executeDelay(
-    action: AutomationAction
-  ): Promise<ActionExecutionResult> {
-    const rawSeconds = Number(action.config?.delaySeconds) || 0;
-    // Bound delay to max 500ms in runtime to prevent long-hanging executions
-    const sleepMs = Math.min(Math.max(rawSeconds * 1000, 0), 500);
-
-    if (sleepMs > 0) {
-      await new Promise(resolve => setTimeout(resolve, sleepMs));
-    }
-
-    return {
-      actionId: action.id,
-      actionType: action.type,
-      actionName: action.name,
-      success: true,
-      executedAt: new Date().toISOString(),
-      message: `Atraso programado de ${rawSeconds}s concluído (${sleepMs}ms aguardados).`,
-      output: { delaySeconds: rawSeconds, actualSleepMs: sleepMs },
-    };
   }
 }

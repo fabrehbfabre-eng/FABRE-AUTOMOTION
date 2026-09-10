@@ -13,6 +13,7 @@
 import { AutomationTrigger } from '../../types';
 import { RuleEngineEvent, EvaluationContext, TriggerEvaluationResult } from './types';
 import { logEngine } from './engineLogger';
+import { InactiveFollowupEngine } from './InactiveFollowupEngine';
 
 export class TriggerEvaluator {
   /**
@@ -320,25 +321,43 @@ export class TriggerEvaluator {
    */
   private static evaluateInactiveFollowup(
     trigger: AutomationTrigger,
-    _event: RuleEngineEvent,
+    event: RuleEngineEvent,
     context: EvaluationContext
   ): TriggerEvaluationResult {
-    const config = trigger.config || {};
-    const thresholdHours = Number(config.inactivityHours) || 24;
-    const currentInactivity = context.inactivityHours ?? 0;
-
-    if (currentInactivity >= thresholdHours) {
+    const parseResult = InactiveFollowupEngine.parseInactivityMinutes(trigger);
+    if (!parseResult.valid) {
       return {
-        matched: true,
+        matched: false,
         triggerType: 'inactive_followup',
-        reason: `Inatividade de ${currentInactivity}h atingiu o limite de ${thresholdHours}h.`,
+        reason: parseResult.error || 'Configuração inválida de inatividade.',
       };
     }
 
+    // Only customer messages (sender === 'contact') can program an inactive follow-up
+    if (event.sender && event.sender !== 'contact') {
+      return {
+        matched: false,
+        triggerType: 'inactive_followup',
+        reason: `Remetente '${event.sender}' não pode armar follow-up de inatividade (exclusivo para 'contact').`,
+      };
+    }
+
+    // Backwards compatibility for direct context simulation if passed
+    if (context.inactivityHours !== undefined) {
+      const currentMinutes = (context.inactivityHours ?? 0) * 60;
+      if (currentMinutes < parseResult.minutes) {
+        return {
+          matched: false,
+          triggerType: 'inactive_followup',
+          reason: `Tempo de inatividade (${context.inactivityHours}h) inferior ao limite configurado (${parseResult.minutes}m).`,
+        };
+      }
+    }
+
     return {
-      matched: false,
+      matched: true,
       triggerType: 'inactive_followup',
-      reason: `Tempo de inatividade (${currentInactivity}h) inferior ao limite configurado (${thresholdHours}h).`,
+      reason: `Gatilho de inatividade válido: programado para ${parseResult.minutes} minutos.`,
     };
   }
 }

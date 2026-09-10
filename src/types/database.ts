@@ -441,9 +441,96 @@ export interface Database {
           }
         ];
       };
+      automation_jobs: {
+        Row: {
+          id: string;
+          automation_id: string;
+          conversation_id: string;
+          action_id: string;
+          job_type: string;
+          status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+          scheduled_at: string;
+          started_at: string | null;
+          completed_at: string | null;
+          failed_at: string | null;
+          attempts: number;
+          max_attempts: number;
+          payload: Json;
+          last_error: string | null;
+          idempotency_key: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          automation_id: string;
+          conversation_id: string;
+          action_id: string;
+          job_type?: string;
+          status?: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+          scheduled_at: string;
+          started_at?: string | null;
+          completed_at?: string | null;
+          failed_at?: string | null;
+          attempts?: number;
+          max_attempts?: number;
+          payload?: Json;
+          last_error?: string | null;
+          idempotency_key?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          automation_id?: string;
+          conversation_id?: string;
+          action_id?: string;
+          job_type?: string;
+          status?: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+          scheduled_at?: string;
+          started_at?: string | null;
+          completed_at?: string | null;
+          failed_at?: string | null;
+          attempts?: number;
+          max_attempts?: number;
+          payload?: Json;
+          last_error?: string | null;
+          idempotency_key?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'automation_jobs_automation_id_fkey';
+            columns: ['automation_id'];
+            referencedRelation: 'automations';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'automation_jobs_conversation_id_fkey';
+            columns: ['conversation_id'];
+            referencedRelation: 'conversations';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'automation_jobs_action_id_fkey';
+            columns: ['action_id'];
+            referencedRelation: 'automation_actions';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
     };
     Views: {};
-    Functions: {};
+    Functions: {
+      claim_due_automation_jobs: {
+        Args: {
+          p_limit?: number;
+          p_worker_id?: string | null;
+        };
+        Returns: Database['public']['Tables']['automation_jobs']['Row'][];
+      };
+    };
     Enums: {};
   };
 }

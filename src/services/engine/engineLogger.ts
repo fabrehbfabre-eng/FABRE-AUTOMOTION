@@ -79,3 +79,35 @@ export function logEngine(
       break;
   }
 }
+
+export function logScheduler(
+  level: EngineLogLevel,
+  action: string,
+  details: Record<string, unknown>
+): void {
+  const sanitized = sanitizeData(details);
+  const timestamp = new Date().toISOString();
+  const logPayload = {
+    timestamp,
+    component: 'DurableScheduler',
+    action,
+    ...((typeof sanitized === 'object' && sanitized !== null) ? sanitized : { details: sanitized }),
+  };
+
+  const message = `[DurableScheduler][${action}]`;
+  switch (level) {
+    case 'error':
+      console.error(message, logPayload);
+      break;
+    case 'warn':
+      console.warn(message, logPayload);
+      break;
+    case 'debug':
+      console.debug(message, logPayload);
+      break;
+    case 'info':
+    default:
+      console.info(message, logPayload);
+      break;
+  }
+}

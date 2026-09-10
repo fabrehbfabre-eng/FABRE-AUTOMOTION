@@ -9,3 +9,5 @@ export * from './TriggerEvaluator';
 export * from './ActionExecutor';
 export * from './engineLogger';
 export * from './validation';
+export * from './DurableScheduler';
+export * from './InactiveFollowupEngine';

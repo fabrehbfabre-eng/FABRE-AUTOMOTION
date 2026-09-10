@@ -5,8 +5,9 @@
 
 import React from 'react';
 import { NavItemKey } from './Sidebar';
-import { ShieldCheck, Database, Terminal, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Database, Terminal, CheckCircle2, AlertCircle, LogOut, User as UserIcon } from 'lucide-react';
 import { isSupabaseConfigured } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface HeaderProps {
   activeTab: NavItemKey;
@@ -16,6 +17,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ activeTab, onOpenArchitectureModal, onOpenSchemaModal }) => {
   const isConnected = isSupabaseConfigured();
+  const { user, role, signOut, isAuthenticated } = useAuth();
 
   const titles: Record<NavItemKey, { title: string; subtitle: string }> = {
     dashboard: {
@@ -98,6 +100,28 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, onOpenArchitectureMod
           <ShieldCheck size={14} className="text-cyan-400" />
           <span className="text-[11px] font-mono">Sem Lock-in</span>
         </div>
+
+        {/* Authenticated Operator Info & Logout */}
+        {isAuthenticated && (
+          <div className="flex items-center gap-2 pl-2 border-l border-neutral-800/80">
+            <div className="text-right hidden lg:block">
+              <p className="text-xs font-semibold text-neutral-200 truncate max-w-[130px]" title={user?.email || ''}>
+                {user?.email}
+              </p>
+              <p className="text-[10px] font-mono text-cyan-400 uppercase">
+                {role || 'operador'}
+              </p>
+            </div>
+            <button
+              onClick={() => signOut()}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-rose-400 border border-neutral-800 hover:border-rose-900/40 text-xs font-medium transition-colors cursor-pointer"
+              title="Encerrar sessão de operador (Sign Out)"
+            >
+              <LogOut size={13} />
+              <span className="hidden sm:inline">Sair</span>
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );
