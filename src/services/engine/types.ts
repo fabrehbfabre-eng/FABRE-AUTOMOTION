@@ -76,9 +76,12 @@ export interface ActionExecutionResult {
   scheduled?: boolean;
   jobId?: string;
   scheduledFor?: string;
-  status?: 'EXECUTED' | 'BLOCKED' | 'FAILED' | 'DUPLICATE' | 'UNSUPPORTED_CHANNEL' | 'PROVIDER_REJECTED';
-  dispatchStatus?: 'EXECUTED' | 'BLOCKED' | 'FAILED' | 'DUPLICATE' | 'UNSUPPORTED_CHANNEL' | 'PROVIDER_REJECTED' | 'SKIPPED';
+  status?: 'EXECUTED' | 'BLOCKED' | 'FAILED' | 'DUPLICATE' | 'UNSUPPORTED_CHANNEL' | 'PROVIDER_REJECTED' | 'VALIDATION_FAILED' | 'SKIPPED';
+  dispatchStatus?: 'EXECUTED' | 'BLOCKED' | 'FAILED' | 'DUPLICATE' | 'UNSUPPORTED_CHANNEL' | 'PROVIDER_REJECTED' | 'VALIDATION_FAILED' | 'SKIPPED';
   wamid?: string;
+  errorCategory?: string;
+  validationCode?: string;
+  isRetryable?: boolean;
 }
 
 /**

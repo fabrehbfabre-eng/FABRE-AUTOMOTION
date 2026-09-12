@@ -54,29 +54,49 @@ serve(async (req: Request) => {
 
   try {
     supabase = getServerSupabaseClient();
-    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-    if (authError || !authData?.user || !authData.user.id) {
-      logSecure("warn", {
+    // Allow internal automation background worker authenticated via SUPABASE_SERVICE_ROLE_KEY
+    if (serviceRoleKey && token === serviceRoleKey.trim()) {
+      user = {
+        id: "system_automation_worker",
+        role: "authenticated",
+        app_metadata: {
+          role: "admin",
+          is_system_worker: true,
+        },
+      };
+      logSecure("info", {
         service: "meta-automation-send-message",
-        action: "jwt_validation",
-        status: "warning",
-        message: `Validação do JWT falhou ou sessão expirada: ${authError?.message || "Usuário não encontrado"}`,
+        action: "worker_jwt_auth",
+        status: "success",
+        message: "Autenticação via chave de serviço interna para execução agendada/worker",
       });
-      return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
-    }
+    } else {
+      const { data: authData, error: authError } = await supabase.auth.getUser(token);
 
-    user = authData.user;
+      if (authError || !authData?.user || !authData.user.id) {
+        logSecure("warn", {
+          service: "meta-automation-send-message",
+          action: "jwt_validation",
+          status: "warning",
+          message: `Validação do JWT falhou ou sessão expirada: ${authError?.message || "Usuário não encontrado"}`,
+        });
+        return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+      }
 
-    // Verify authenticated user role (reject 'anon' tokens or service tokens posing as users)
-    if (user.role !== "authenticated") {
-      logSecure("warn", {
-        service: "meta-automation-send-message",
-        action: "jwt_role_check",
-        status: "warning",
-        message: `Token com papel de usuário não autenticado: ${user.role}`,
-      });
-      return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+      user = authData.user;
+
+      // Verify authenticated user role (reject 'anon' tokens or service tokens posing as users)
+      if (user.role !== "authenticated") {
+        logSecure("warn", {
+          service: "meta-automation-send-message",
+          action: "jwt_role_check",
+          status: "warning",
+          message: `Token com papel de usuário não autenticado: ${user.role}`,
+        });
+        return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+      }
     }
   } catch (authException: unknown) {
     const errText = authException instanceof Error ? authException.message : String(authException);
@@ -200,11 +220,21 @@ serve(async (req: Request) => {
     const rawPhone = contact.phone || (contact.metadata as any)?.wa_id || contact.username?.replace(/^wa_/, "");
     const recipientPhone = (rawPhone || "").replace(/\D/g, "");
 
-    if (!recipientPhone || recipientPhone.length < 8) {
+    // ITU-T E.164 phone format validation: minimum 8 digits, maximum 15 digits
+    if (!recipientPhone || recipientPhone.length < 8 || recipientPhone.length > 15) {
+      logSecure("warn", {
+        service: "meta-automation-send-message",
+        action: "OUTBOUND_FAILED",
+        status: "warning",
+        category: "VALIDATION_ERROR",
+        recipient: recipientPhone,
+        message: "Número de telefone do destinatário inválido ou não cadastrado no perfil de contato (deve conter entre 8 e 15 dígitos numéricos).",
+      });
       return createErrorResponse(
         400,
-        "Número de telefone do destinatário inválido ou não cadastrado no perfil de contato.",
-        "INVALID_INPUT"
+        "Número de telefone do destinatário inválido ou não cadastrado no perfil de contato (deve conter entre 8 e 15 dígitos numéricos).",
+        "VALIDATION_ERROR",
+        { errorCategory: "VALIDATION_ERROR", isRetryable: false }
       );
     }
 
@@ -324,8 +354,9 @@ serve(async (req: Request) => {
       if (existingMsg) {
         logSecure("info", {
           service: "meta-automation-send-message",
-          action: "idempotency_check",
+          action: "OUTBOUND_DUPLICATE_IGNORED",
           status: "success",
+          category: "DUPLICATE_EXECUTION",
           messageId: existingMsg.id,
           triggeredBy: messageId,
           message: "Mensagem automatizada já despachada anteriormente para este evento. Reenvio impedido por idempotência.",
@@ -334,6 +365,8 @@ serve(async (req: Request) => {
         return createSuccessResponse({
           status: "DUPLICATE",
           code: "EVENT_ALREADY_PROCESSED",
+          errorCategory: "DUPLICATE_EXECUTION",
+          isRetryable: false,
           message: "Mensagem automatizada já despachada anteriormente para este evento.",
           existingMessageId: existingMsg.id,
           wamid: existingMsg.external_event_id,
@@ -415,15 +448,17 @@ serve(async (req: Request) => {
       const errorMsg = networkErr instanceof Error ? networkErr.message : String(networkErr);
       logSecure("error", {
         service: "meta-automation-send-message",
-        action: "fetch_meta_api",
+        action: "OUTBOUND_FAILED",
         status: "error",
         channel: "whatsapp",
+        category: "TRANSIENT_NETWORK_ERROR",
         message: `Falha de rede ao conectar com a Meta Cloud API: ${errorMsg}`,
       });
       return createErrorResponse(
         502,
         `Falha de comunicação de rede com a Meta Cloud API: ${errorMsg}`,
-        "INTERNAL_ERROR"
+        "TRANSIENT_NETWORK_ERROR",
+        { errorCategory: "TRANSIENT_NETWORK_ERROR", isRetryable: true, status: "FAILED" }
       );
     }
 
@@ -437,14 +472,41 @@ serve(async (req: Request) => {
       }
 
       const errDetails = metaErrorData.error || {};
-      const errCode = errDetails.code || metaRes.status;
+      const errCode = Number(errDetails.code) || metaRes.status;
       const errMsg = errDetails.message || "Erro retornado pela Meta Cloud API";
+
+      let errorCategory = "META_API_ERROR";
+      let isRetryable = false;
+      let userFriendlyMsg = `Falha na Meta Cloud API [${errCode}]: ${errMsg}`;
+
+      if (errCode === 131047) {
+        errorCategory = "META_POLICY_ERROR";
+        isRetryable = false;
+        userFriendlyMsg = `Janela de 24 horas para envio de mensagem livre expirada (Código 131047). O cliente precisa enviar uma nova mensagem antes que mensagens livres possam ser entregues.`;
+      } else if (errCode === 131030) {
+        errorCategory = "META_POLICY_ERROR";
+        isRetryable = false;
+        userFriendlyMsg = `Número de telefone não autorizado no modo de desenvolvimento Meta (Código 131030). Adicione este número como 'Test Number' no painel de desenvolvedores Meta.`;
+      } else if (errCode === 190) {
+        errorCategory = "AUTHENTICATION_ERROR";
+        isRetryable = false;
+        userFriendlyMsg = `Token da WhatsApp Business Cloud API expirou ou é inválido (Código 190). Atualize a Secret WHATSAPP_ACCESS_TOKEN.`;
+      } else if (metaRes.status === 429 || errCode === 130429) {
+        errorCategory = "META_API_ERROR";
+        isRetryable = true;
+        userFriendlyMsg = `Limite de requisições da Meta Cloud API atingido (Rate Limit / 429).`;
+      } else if (metaRes.status >= 500) {
+        errorCategory = "META_API_ERROR";
+        isRetryable = true;
+        userFriendlyMsg = `Erro transitório no servidor da Meta Cloud API (HTTP ${metaRes.status}).`;
+      }
 
       logSecure("error", {
         service: "meta-automation-send-message",
-        action: "meta_api_response",
+        action: "OUTBOUND_FAILED",
         status: "error",
         channel: "whatsapp",
+        category: errorCategory,
         message: `Meta Cloud API rejeitou envio automatizado HTTP ${metaRes.status} [Código ${errCode}]: ${errMsg}`,
         details: {
           code: errCode,
@@ -453,27 +515,64 @@ serve(async (req: Request) => {
           recipient: recipientPhone,
           automationId,
           actionId,
+          isRetryable,
         },
       });
 
-      let userFriendlyMsg = `Falha na Meta Cloud API [${errCode}]: ${errMsg}`;
-      if (errCode === 131030) {
-        userFriendlyMsg = `Número de telefone não autorizado no modo de desenvolvimento Meta (Código 131030). Adicione este número como 'Test Number' no painel de desenvolvedores Meta.`;
-      } else if (errCode === 190) {
-        userFriendlyMsg = `Token da WhatsApp Business Cloud API expirou ou é inválido (Código 190). Atualize a Secret WHATSAPP_ACCESS_TOKEN.`;
-      }
-
       return createErrorResponse(
-        metaRes.status >= 500 ? 502 : 400,
+        metaRes.status >= 500 ? 502 : (metaRes.status === 401 || metaRes.status === 403 ? metaRes.status : 400),
         userFriendlyMsg,
-        "INTERNAL_ERROR",
-        { metaCode: errCode, status: "PROVIDER_REJECTED" }
+        errorCategory,
+        {
+          metaCode: errCode,
+          errorCategory,
+          isRetryable,
+          status: "PROVIDER_REJECTED",
+        }
       );
     }
 
-    // 14. Parse Success Response & Extract wamid
+    // 14. Parse Success Response & Extract wamid safely
     const metaSuccessData = await metaRes.json();
-    const wamid = metaSuccessData.messages?.[0]?.id || `wamid.auto_${Date.now()}`;
+    const rawWamid = metaSuccessData.messages?.[0]?.id;
+
+    // Safety Mandate: Never invent a fake wamid. If Meta returns success without wamid, treat as provider contract error.
+    if (!rawWamid || typeof rawWamid !== "string" || !rawWamid.trim()) {
+      logSecure("error", {
+        service: "meta-automation-send-message",
+        action: "OUTBOUND_FAILED",
+        status: "error",
+        channel: "whatsapp",
+        category: "META_API_ERROR",
+        message: "Meta Cloud API retornou status HTTP de sucesso, mas não forneceu o ID oficial da mensagem (wamid ausente)",
+        rawResponse: metaSuccessData,
+      });
+
+      return createErrorResponse(
+        502,
+        "A Meta Cloud API confirmou a requisição, mas não retornou o identificador oficial da mensagem (wamid ausente). Envio não registrado como sent.",
+        "META_API_ERROR",
+        {
+          status: "PROVIDER_REJECTED",
+          errorCategory: "META_API_ERROR",
+          isRetryable: true,
+          code: "MISSING_WAMID",
+        }
+      );
+    }
+
+    const wamid = rawWamid.trim();
+
+    logSecure("info", {
+      service: "meta-automation-send-message",
+      action: "OUTBOUND_SENT",
+      status: "success",
+      channel: "whatsapp",
+      wamid,
+      recipient: recipientPhone,
+      automationId,
+      actionId,
+    });
 
     // 15. PostgreSQL Persistence of Automated Message
     // Records operator_authorized_by to maintain full cryptographic audit trail
@@ -498,6 +597,7 @@ serve(async (req: Request) => {
           triggeredByMessageId: messageId || null,
           externalEventId: externalEventId || null,
           meta_message_id: wamid,
+          wamid,
           sent_by: "automation_engine",
           operator_authorized_by: user.id,
         },
@@ -508,17 +608,28 @@ serve(async (req: Request) => {
     if (insertErr || !insertedMsg) {
       logSecure("error", {
         service: "meta-automation-send-message",
-        action: "persist_automated_message",
+        action: "OUTBOUND_FAILED",
         status: "error",
+        category: "PERSISTENCE_ERROR",
         channel: "whatsapp",
         message: `Mensagem automatizada despachada com ID ${wamid}, mas falhou ao gravar no Supabase: ${insertErr?.message}`,
       });
       return createErrorResponse(
         500,
         `Mensagem automatizada despachada com sucesso ao WhatsApp (ID: ${wamid}), mas falhou ao persistir no banco de dados.`,
-        "INTERNAL_ERROR"
+        "PERSISTENCE_ERROR",
+        { errorCategory: "PERSISTENCE_ERROR", isRetryable: false }
       );
     }
+
+    logSecure("info", {
+      service: "meta-automation-send-message",
+      action: "OUTBOUND_PERSISTED",
+      status: "success",
+      channel: "whatsapp",
+      messageId: insertedMsg.id,
+      wamid,
+    });
 
     // 16. Update Conversation Activity & Mark unread_count
     await supabase

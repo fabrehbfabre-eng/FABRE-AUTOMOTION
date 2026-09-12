@@ -122,6 +122,16 @@ async function setupFixtures() {
           delaySeconds: 0,
         },
       },
+      {
+        id: 'act_zero_delay',
+        type: 'send_message',
+        name: 'Ação Imediata',
+        description: 'Delay zero',
+        config: {
+          messageText: 'Texto imediato',
+          delaySeconds: 0,
+        },
+      },
     ],
   };
   await repositoryManager.automation.createAutomation(sampleAuto);

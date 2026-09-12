@@ -253,6 +253,8 @@ export class ActionExecutor {
         automationId: automation.id,
         channel: event.channel,
         status: dispatchResult.status,
+        errorCategory: dispatchResult.errorCategory,
+        isRetryable: dispatchResult.isRetryable,
         error: dispatchResult.error,
       });
 
@@ -265,6 +267,33 @@ export class ActionExecutor {
         error: dispatchResult.error || 'Falha no despacho outbound automatizado.',
         status: dispatchResult.status,
         dispatchStatus: dispatchResult.status,
+        errorCategory: dispatchResult.errorCategory,
+        validationCode: dispatchResult.validationCode,
+        isRetryable: dispatchResult.isRetryable,
+      };
+    }
+
+    if (dispatchResult.status === 'DUPLICATE') {
+      return {
+        actionId: action.id,
+        actionType: action.type,
+        actionName: action.name,
+        success: true,
+        executedAt: new Date().toISOString(),
+        createdMessageId: dispatchResult.messageId,
+        message: `Mensagem já despachada anteriormente para este evento (${dispatchResult.wamid || dispatchResult.messageId}).`,
+        status: 'DUPLICATE',
+        dispatchStatus: 'DUPLICATE',
+        wamid: dispatchResult.wamid,
+        errorCategory: dispatchResult.errorCategory,
+        isRetryable: false,
+        output: {
+          messageId: dispatchResult.messageId,
+          content: text,
+          sender: 'bot',
+          wamid: dispatchResult.wamid,
+          duplicate: true,
+        },
       };
     }
 

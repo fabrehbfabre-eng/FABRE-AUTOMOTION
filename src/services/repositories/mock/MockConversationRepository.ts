@@ -317,7 +317,7 @@ export class MockConversationRepository implements IConversationRepository {
     if (existing) return existing;
 
     const newConv: Conversation = {
-      id: `conv_ig_${Date.now()}`,
+      id: `conv_${data.channel}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       contactId: data.contactId,
       contact: {
         id: data.contactId,

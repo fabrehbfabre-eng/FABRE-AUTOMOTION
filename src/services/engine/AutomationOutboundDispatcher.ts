@@ -12,7 +12,15 @@
 import { ChannelType, AutomationActionType } from '../../types';
 import { repositoryManager } from '../repositories';
 import { getSupabaseClient } from '../../lib/supabase';
-import { logEngine } from './engineLogger';
+import { logEngine, logOutbound } from './engineLogger';
+import {
+  OutboundDispatchStatus,
+  OutboundErrorCategory,
+  OutboundValidationCode,
+  OutboundDeliveryResult,
+  isTransientOutboundError,
+  mapHttpStatusToOutboundErrorCategory,
+} from './outboundTypes';
 
 export interface AutomationDispatchParams {
   conversationId: string;
@@ -26,12 +34,7 @@ export interface AutomationDispatchParams {
   externalEventId?: string;
 }
 
-export interface AutomationDispatchResult {
-  success: boolean;
-  status: 'EXECUTED' | 'BLOCKED' | 'FAILED' | 'DUPLICATE' | 'UNSUPPORTED_CHANNEL' | 'PROVIDER_REJECTED';
-  messageId?: string;
-  wamid?: string;
-  error?: string;
+export interface AutomationDispatchResult extends OutboundDeliveryResult {
   rawResponse?: unknown;
 }
 
@@ -120,23 +123,36 @@ export class AutomationOutboundDispatcher {
   ): Promise<AutomationDispatchResult> {
     const { channel, conversationId, automationId, automationTitle, actionId, actionType, text, messageId, externalEventId } = params;
 
+    logOutbound('info', 'OUTBOUND_REQUESTED', {
+      channel,
+      conversationId,
+      automationId,
+      actionId,
+      messageId,
+    });
+
     // 1. Channel Certification Verification
     // Reject uncertified channels (Instagram, Messenger) fail-closed
     if (!this.isChannelCertified(channel)) {
       const channelLabel = channel === 'instagram' ? 'Instagram' : channel === 'messenger' ? 'Messenger' : channel;
       const errorMsg = `Envio outbound automatizado para o canal ${channelLabel} ainda não está certificado nesta Release. Apenas WhatsApp Business Cloud API está habilitado.`;
       
-      logEngine('warn', 'AUTOMATION_DISPATCH_UNSUPPORTED_CHANNEL', {
+      logOutbound('warn', 'OUTBOUND_FAILED', {
         channel,
         conversationId,
         automationId,
         actionId,
+        errorCategory: 'VALIDATION_ERROR',
+        validationCode: 'UNSUPPORTED_CHANNEL',
         reason: 'Canal sem dispatcher outbound certificado',
       });
 
       return {
         success: false,
         status: 'UNSUPPORTED_CHANNEL',
+        errorCategory: 'VALIDATION_ERROR',
+        validationCode: 'UNSUPPORTED_CHANNEL',
+        isRetryable: false,
         error: errorMsg,
       };
     }
@@ -160,6 +176,9 @@ export class AutomationOutboundDispatcher {
     return {
       success: false,
       status: 'UNSUPPORTED_CHANNEL',
+      errorCategory: 'VALIDATION_ERROR',
+      validationCode: 'UNSUPPORTED_CHANNEL',
+      isRetryable: false,
       error: `Canal ${channel} não suportado para despacho automatizado.`,
     };
   }
@@ -176,10 +195,173 @@ export class AutomationOutboundDispatcher {
     // A. MOCK PROVIDER EXECUTION (Offline, CI/CD, Test Runner)
     // =========================================================================
     if (this.getDispatcherMode() === 'mock') {
-      logEngine('info', 'AUTOMATION_DISPATCH_MOCK_START', {
+      // 1. Validate Conversation
+      const conversation = await repositoryManager.conversation.getConversationById(conversationId);
+      if (!conversation) {
+        logOutbound('warn', 'OUTBOUND_FAILED', {
+          conversationId,
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'CONVERSATION_NOT_FOUND',
+        });
+        return {
+          success: false,
+          status: 'FAILED',
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'CONVERSATION_NOT_FOUND',
+          isRetryable: false,
+          error: `Conversa ${conversationId} não encontrada.`,
+        };
+      }
+
+      if (conversation.channel !== 'whatsapp') {
+        logOutbound('warn', 'OUTBOUND_FAILED', {
+          conversationId,
+          channel: conversation.channel,
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'UNSUPPORTED_CHANNEL',
+        });
+        return {
+          success: false,
+          status: 'UNSUPPORTED_CHANNEL',
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'UNSUPPORTED_CHANNEL',
+          isRetryable: false,
+          error: `Conversa com canal ${conversation.channel} não suportado para WhatsApp outbound.`,
+        };
+      }
+
+      // 2. Validate Automation & Action
+      const automation = await repositoryManager.automation.getAutomationById(automationId);
+      if (!automation) {
+        logOutbound('warn', 'OUTBOUND_FAILED', {
+          automationId,
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'AUTOMATION_NOT_FOUND',
+        });
+        return {
+          success: false,
+          status: 'FAILED',
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'AUTOMATION_NOT_FOUND',
+          isRetryable: false,
+          error: `Automação ${automationId} não encontrada.`,
+        };
+      }
+
+      if (automation.enabled === false) {
+        logOutbound('warn', 'OUTBOUND_FAILED', {
+          automationId,
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'AUTOMATION_DISABLED',
+        });
+        return {
+          success: false,
+          status: 'BLOCKED',
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'AUTOMATION_DISABLED',
+          isRetryable: false,
+          error: `Automação ${automationId} está desativada.`,
+        };
+      }
+
+      const matchedAction = (automation.actions || []).find((a) => a.id === actionId);
+      if (!matchedAction) {
+        logOutbound('warn', 'OUTBOUND_FAILED', {
+          automationId,
+          actionId,
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'ACTION_NOT_FOUND',
+        });
+        return {
+          success: false,
+          status: 'FAILED',
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'ACTION_NOT_FOUND',
+          isRetryable: false,
+          error: `Ação ${actionId} não pertence à automação ${automationId}.`,
+        };
+      }
+
+      const verifiedText = String(matchedAction.config?.messageText || matchedAction.config?.text || '').trim();
+      if (!verifiedText) {
+        logOutbound('warn', 'OUTBOUND_FAILED', {
+          automationId,
+          actionId,
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'EMPTY_MESSAGE_TEXT',
+        });
+        return {
+          success: false,
+          status: 'FAILED',
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'EMPTY_MESSAGE_TEXT',
+          isRetryable: false,
+          error: `Texto da mensagem de automação ${actionId} não configurado no banco de dados.`,
+        };
+      }
+
+      // 3. Validate Recipient Phone
+      const contact = conversation.contact;
+      const rawPhone = contact?.phone || (contact as any)?.metadata?.wa_id || contact?.username?.replace(/^wa_/, '') || '';
+      let recipientPhone = rawPhone.replace(/\D/g, '');
+
+      // In mock mode only, if contact has no phone configured at all, fallback for legacy test fixtures
+      if (!recipientPhone && this.getDispatcherMode() === 'mock' && contact?.id) {
+        recipientPhone = '5511999999999';
+      }
+
+      if (!recipientPhone || recipientPhone.length < 8 || recipientPhone.length > 15) {
+        logOutbound('warn', 'OUTBOUND_FAILED', {
+          conversationId,
+          recipient: recipientPhone,
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'INVALID_RECIPIENT',
+        });
+        return {
+          success: false,
+          status: 'FAILED',
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'INVALID_RECIPIENT',
+          isRetryable: false,
+          error: `Número de telefone do destinatário inválido ou fora do padrão ITU-T E.164 (8 a 15 dígitos): ${recipientPhone}`,
+        };
+      }
+
+      // 4. Idempotency Check
+      if (messageId) {
+        const existingMessages = await repositoryManager.conversation.getMessages(conversationId);
+        const duplicate = existingMessages.find(
+          (m) =>
+            m.sender === 'bot' &&
+            (m.metadata as any)?.triggeredByMessageId === messageId &&
+            (m.metadata as any)?.actionId === actionId
+        );
+
+        if (duplicate) {
+          logOutbound('info', 'OUTBOUND_DUPLICATE_IGNORED', {
+            conversationId,
+            messageId: duplicate.id,
+            wamid: duplicate.externalEventId,
+            triggeredBy: messageId,
+          });
+
+          return {
+            success: true,
+            status: 'DUPLICATE',
+            errorCategory: 'DUPLICATE_EXECUTION',
+            isRetryable: false,
+            messageId: duplicate.id,
+            wamid: duplicate.externalEventId,
+            rawResponse: { duplicate: true, existingMessageId: duplicate.id },
+          };
+        }
+      }
+
+      logOutbound('info', 'OUTBOUND_VALIDATED', {
         conversationId,
         automationId,
         actionId,
+        recipient: recipientPhone,
       });
 
       // Generate realistic mock wamid
@@ -190,7 +372,7 @@ export class AutomationOutboundDispatcher {
           conversationId,
           sender: 'bot',
           channel: 'whatsapp',
-          content: text,
+          content: verifiedText,
           contentType: 'text',
           status: 'sent',
           externalEventId: mockWamid,
@@ -200,6 +382,7 @@ export class AutomationOutboundDispatcher {
             actionId,
             actionType,
             isAutomated: true,
+            recipient: recipientPhone,
             triggeredByMessageId: messageId || null,
             externalEventId: externalEventId || null,
             wamid: mockWamid,
@@ -207,7 +390,13 @@ export class AutomationOutboundDispatcher {
           },
         });
 
-        logEngine('info', 'AUTOMATION_DISPATCH_MOCK_SUCCESS', {
+        logOutbound('info', 'OUTBOUND_SENT', {
+          conversationId,
+          wamid: mockWamid,
+          recipient: recipientPhone,
+        });
+
+        logOutbound('info', 'OUTBOUND_PERSISTED', {
           conversationId,
           messageId: createdMsg.id,
           wamid: mockWamid,
@@ -218,18 +407,22 @@ export class AutomationOutboundDispatcher {
           status: 'EXECUTED',
           messageId: createdMsg.id,
           wamid: mockWamid,
+          isRetryable: false,
           rawResponse: { mock: true, wamid: mockWamid },
         };
       } catch (mockErr: unknown) {
         const errText = mockErr instanceof Error ? mockErr.message : String(mockErr);
-        logEngine('error', 'AUTOMATION_DISPATCH_MOCK_ERROR', {
+        logOutbound('error', 'OUTBOUND_FAILED', {
           conversationId,
+          errorCategory: 'PERSISTENCE_ERROR',
           error: errText,
         });
 
         return {
           success: false,
           status: 'FAILED',
+          errorCategory: 'PERSISTENCE_ERROR',
+          isRetryable: false,
           error: `Falha ao persistir mensagem automatizada no mock: ${errText}`,
         };
       }
@@ -240,27 +433,30 @@ export class AutomationOutboundDispatcher {
     // =========================================================================
     const supabase = getSupabaseClient();
     if (!supabase) {
-      logEngine('error', 'AUTOMATION_DISPATCH_NO_CLIENT', {
+      logOutbound('error', 'OUTBOUND_FAILED', {
         conversationId,
+        errorCategory: 'VALIDATION_ERROR',
         error: 'Cliente Supabase não configurado ou indisponível',
       });
 
       return {
         success: false,
         status: 'FAILED',
+        errorCategory: 'VALIDATION_ERROR',
+        isRetryable: false,
         error: 'Cliente Supabase não configurado para execução de Edge Function.',
       };
     }
 
     try {
-      logEngine('info', 'AUTOMATION_DISPATCH_EDGE_FUNCTION_INVOKE', {
+      logOutbound('info', 'OUTBOUND_REQUESTED', {
         conversationId,
         automationId,
         actionId,
-        functionName: 'meta-automation-send-message',
+        target: 'meta-automation-send-message',
       });
 
-      // Attach Authorization Bearer token from active operator session
+      // Attach Authorization Bearer token from active operator session or service key
       let headers: Record<string, string> | undefined = undefined;
       try {
         const { data: sessionData } = await supabase.auth.getSession();
@@ -286,14 +482,25 @@ export class AutomationOutboundDispatcher {
       });
 
       if (error) {
-        logEngine('error', 'AUTOMATION_DISPATCH_EDGE_FUNCTION_ERROR', {
+        const errorCategory = mapHttpStatusToOutboundErrorCategory(
+          (error as any).status || 500,
+          undefined,
+          error.message
+        );
+        const retryable = isTransientOutboundError(errorCategory, undefined, (error as any).status);
+
+        logOutbound('error', 'OUTBOUND_FAILED', {
           conversationId,
+          errorCategory,
+          isRetryable: retryable,
           error: error.message,
         });
 
         return {
           success: false,
           status: 'PROVIDER_REJECTED',
+          errorCategory,
+          isRetryable: retryable,
           error: error.message || 'Falha ao invocar Edge Function meta-automation-send-message',
           rawResponse: error,
         };
@@ -301,7 +508,7 @@ export class AutomationOutboundDispatcher {
 
       // Handle duplicate event
       if (data?.status === 'DUPLICATE') {
-        logEngine('info', 'AUTOMATION_DISPATCH_DUPLICATE', {
+        logOutbound('info', 'OUTBOUND_DUPLICATE_IGNORED', {
           conversationId,
           messageId: data.existingMessageId,
           wamid: data.wamid,
@@ -310,6 +517,8 @@ export class AutomationOutboundDispatcher {
         return {
           success: true,
           status: 'DUPLICATE',
+          errorCategory: 'DUPLICATE_EXECUTION',
+          isRetryable: false,
           messageId: data.existingMessageId,
           wamid: data.wamid,
           rawResponse: data,
@@ -318,9 +527,19 @@ export class AutomationOutboundDispatcher {
 
       // Handle unsupported channel returned by Edge Function
       if (data?.status === 'UNSUPPORTED_CHANNEL') {
+        logOutbound('warn', 'OUTBOUND_FAILED', {
+          conversationId,
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'UNSUPPORTED_CHANNEL',
+          error: data.error,
+        });
+
         return {
           success: false,
           status: 'UNSUPPORTED_CHANNEL',
+          errorCategory: 'VALIDATION_ERROR',
+          validationCode: 'UNSUPPORTED_CHANNEL',
+          isRetryable: false,
           error: data.error,
           rawResponse: data,
         };
@@ -330,7 +549,31 @@ export class AutomationOutboundDispatcher {
       if (data?.status === 'SUCCESS' && data.message?.id) {
         const resolvedWamid = data.externalId || data.wamid || data.message.external_event_id;
 
-        logEngine('info', 'AUTOMATION_DISPATCH_SUCCESS', {
+        if (!resolvedWamid) {
+          logOutbound('error', 'OUTBOUND_FAILED', {
+            conversationId,
+            errorCategory: 'META_API_ERROR',
+            validationCode: 'MISSING_WAMID',
+            error: 'Sucesso retornado sem identificador oficial wamid',
+          });
+
+          return {
+            success: false,
+            status: 'PROVIDER_REJECTED',
+            errorCategory: 'META_API_ERROR',
+            validationCode: 'MISSING_WAMID',
+            isRetryable: true,
+            error: 'A Meta Cloud API confirmou a requisição, mas não retornou o identificador oficial da mensagem (wamid ausente).',
+            rawResponse: data,
+          };
+        }
+
+        logOutbound('info', 'OUTBOUND_SENT', {
+          conversationId,
+          wamid: resolvedWamid,
+        });
+
+        logOutbound('info', 'OUTBOUND_PERSISTED', {
           conversationId,
           messageId: data.message.id,
           wamid: resolvedWamid,
@@ -341,28 +584,53 @@ export class AutomationOutboundDispatcher {
           status: 'EXECUTED',
           messageId: data.message.id,
           wamid: resolvedWamid,
+          isRetryable: false,
           rawResponse: data,
         };
       }
 
-      // Provider failure / rejection
+      // Provider failure / rejection with classification
+      const responseCategory = (data?.errorCategory as OutboundErrorCategory) ||
+        mapHttpStatusToOutboundErrorCategory(
+          data?.code === 'UNAUTHORIZED' ? 401 : data?.code === 'FORBIDDEN' ? 403 : 400,
+          data?.metaCode,
+          data?.error
+        );
+      const retryable = data?.isRetryable !== undefined
+        ? Boolean(data.isRetryable)
+        : isTransientOutboundError(responseCategory, data?.metaCode);
+
+      logOutbound('error', 'OUTBOUND_FAILED', {
+        conversationId,
+        status: data?.status,
+        errorCategory: responseCategory,
+        isRetryable: retryable,
+        error: data?.error,
+      });
+
       return {
         success: false,
         status: data?.status || 'PROVIDER_REJECTED',
+        errorCategory: responseCategory,
+        isRetryable: retryable,
         error: data?.error || 'A Meta Cloud API rejeitou o envio da mensagem automatizada.',
         rawResponse: data,
       };
     } catch (invokeException: unknown) {
       const exceptionMsg = invokeException instanceof Error ? invokeException.message : String(invokeException);
       
-      logEngine('error', 'AUTOMATION_DISPATCH_INVOKE_EXCEPTION', {
+      logOutbound('error', 'OUTBOUND_FAILED', {
         conversationId,
+        errorCategory: 'TRANSIENT_NETWORK_ERROR',
+        isRetryable: true,
         error: exceptionMsg,
       });
 
       return {
         success: false,
         status: 'FAILED',
+        errorCategory: 'TRANSIENT_NETWORK_ERROR',
+        isRetryable: true,
         error: `Exceção de rede na comunicação com a Edge Function: ${exceptionMsg}`,
       };
     }

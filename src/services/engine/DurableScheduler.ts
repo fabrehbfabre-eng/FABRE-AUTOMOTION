@@ -371,7 +371,10 @@ export class DurableScheduler {
         } else {
           // Execution returned controlled error
           const errorMsg = result.error || 'Falha na execução da ação agendada';
-          if (job.attempts < job.maxAttempts) {
+          const isRetryable = result.isRetryable !== false;
+
+          // Only schedule retry if error is transient and maxAttempts not reached
+          if (isRetryable && job.attempts < job.maxAttempts) {
             // Calculate deterministic exponential backoff
             const backoffSeconds = Math.min(30 * Math.pow(2, job.attempts - 1), 900);
             const nextScheduledAt = new Date(now.getTime() + backoffSeconds * 1000).toISOString();
@@ -386,6 +389,7 @@ export class DurableScheduler {
               nextScheduledAt,
               backoffSeconds,
               error: errorMsg,
+              errorCategory: result.errorCategory,
             });
             retriedCount++;
             summaryList.push({
@@ -397,14 +401,19 @@ export class DurableScheduler {
               error: errorMsg,
             });
           } else {
-            await repositoryManager.job.markFailed(job.id, errorMsg);
+            const finalReason = !isRetryable
+              ? `${errorMsg} (Erro permanente não retentável: ${result.errorCategory || 'NON_RETRYABLE'})`
+              : errorMsg;
+            await repositoryManager.job.markFailed(job.id, finalReason);
             logScheduler('error', 'JOB_FAILED', {
               jobId: job.id,
               automationId: job.automationId,
               conversationId: job.conversationId,
               actionId: job.actionId,
               attempt: job.attempts,
-              error: errorMsg,
+              isRetryable,
+              errorCategory: result.errorCategory,
+              error: finalReason,
             });
             failedCount++;
             summaryList.push({
@@ -413,7 +422,7 @@ export class DurableScheduler {
               actionId: job.actionId,
               status: 'failed',
               attempts: job.attempts,
-              error: errorMsg,
+              error: finalReason,
             });
           }
         }

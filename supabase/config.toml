@@ -40,3 +40,6 @@ verify_jwt = false
 
 [functions.meta-automation-send-message]
 verify_jwt = false
+
+[functions.automation-job-worker]
+verify_jwt = false
