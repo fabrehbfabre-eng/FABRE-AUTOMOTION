@@ -27,6 +27,26 @@ export interface ChannelConnection {
   metadata?: Record<string, unknown>;
 }
 
+export interface Workspace {
+  id: string;
+  name: string;
+  slug?: string;
+  ownerId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type WorkspaceRole = 'owner' | 'admin' | 'operator' | 'viewer';
+
+export interface WorkspaceMember {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  role: WorkspaceRole;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -37,6 +57,7 @@ export interface User {
 
 export interface Contact {
   id: string;
+  workspaceId?: string;
   name: string;
   username: string;
   channel: ChannelType;
@@ -54,6 +75,7 @@ export type ConversationHandler = 'bot' | 'human';
 
 export interface Conversation {
   id: string;
+  workspaceId?: string;
   contactId: string;
   contact: Contact;
   channel: ChannelType;
@@ -73,6 +95,7 @@ export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
 
 export interface Message {
   id: string;
+  workspaceId?: string;
   conversationId: string;
   sender: MessageSender;
   channel: ChannelType;

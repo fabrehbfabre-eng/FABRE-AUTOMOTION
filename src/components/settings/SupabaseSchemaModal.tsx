@@ -14,6 +14,9 @@ interface SupabaseSchemaModalProps {
 }
 
 const TABLE_DESCRIPTIONS: Record<string, string> = {
+  workspaces: 'Workspaces e estrutura multi-inquilino da organização',
+  workspace_members: 'Vínculo e permissões de membros por workspace',
+  app_users: 'Usuários provisionados vinculados ao Supabase Auth',
   profiles: 'Contatos, seguidores e dados de perfil unificados',
   conversations: 'Sessões de atendimento com status e handoff bot/humano',
   messages: 'Histórico de mensagens com external_event_id para idempotência',
@@ -25,6 +28,7 @@ const TABLE_DESCRIPTIONS: Record<string, string> = {
   contact_tags: 'Tags globais de segmentação de contatos',
   contact_tag_assignments: 'Relações many-to-many entre contatos e tags',
   contact_notes: 'Notas e anotações internas da equipe de atendimento',
+  automation_jobs: 'Fila de agendamento de mensagens e ações duráveis',
 };
 
 const SQL_SCHEMA_CONTENT = `-- =====================================================
@@ -197,10 +201,11 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_category ON public.knowledge_items(cate
 CREATE INDEX IF NOT EXISTS idx_knowledge_is_active ON public.knowledge_items(is_active);
 CREATE INDEX IF NOT EXISTS idx_knowledge_priority ON public.knowledge_items(priority);
 
--- 3.8 CHANNEL CONNECTIONS
+-- 3.8 CHANNEL CONNECTIONS (Multi-tenant: UNIQUE per workspace + channel)
 CREATE TABLE IF NOT EXISTS public.channel_connections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    channel TEXT NOT NULL UNIQUE CHECK (channel IN ('instagram', 'messenger', 'whatsapp')),
+    workspace_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001' REFERENCES public.workspaces(id) ON DELETE CASCADE,
+    channel TEXT NOT NULL CHECK (channel IN ('instagram', 'messenger', 'whatsapp')),
     name TEXT NOT NULL,
     account_handle TEXT,
     status TEXT NOT NULL DEFAULT 'awaiting_connection' CHECK (status IN ('disconnected', 'awaiting_connection', 'connecting', 'connected', 'error')),
@@ -209,7 +214,8 @@ CREATE TABLE IF NOT EXISTS public.channel_connections (
     last_sync_at TIMESTAMPTZ,
     metadata JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(workspace_id, channel)
 );
 
 DROP TRIGGER IF EXISTS update_channel_connections_updated_at ON public.channel_connections;
@@ -217,6 +223,9 @@ CREATE TRIGGER update_channel_connections_updated_at
     BEFORE UPDATE ON public.channel_connections
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+
+CREATE INDEX IF NOT EXISTS idx_channel_connections_workspace ON public.channel_connections(workspace_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_connections_workspace_channel ON public.channel_connections(workspace_id, channel);
 
 -- 3.9 CONTACT TAGS
 CREATE TABLE IF NOT EXISTS public.contact_tags (
@@ -342,14 +351,14 @@ DROP POLICY IF EXISTS "Allow all contact notes" ON public.contact_notes;
 CREATE POLICY "Allow all contact notes" ON public.contact_notes FOR ALL USING (true);
 
 -- =====================================================
--- 5. INITIAL CHANNEL ENTRIES (Awaiting Connection)
+-- 5. INITIAL CHANNEL ENTRIES (Official Casal Fabre ADM01)
 -- =====================================================
-INSERT INTO public.channel_connections (channel, name, status, status_message)
+INSERT INTO public.channel_connections (workspace_id, channel, name, status, status_message)
 VALUES 
-    ('instagram', 'Instagram Direct API', 'awaiting_connection', 'Aguardando configuração de App Meta & Webhooks'),
-    ('messenger', 'Facebook Messenger', 'awaiting_connection', 'Aguardando autenticação Meta Graph API'),
-    ('whatsapp', 'WhatsApp Business Cloud API', 'awaiting_connection', 'Aguardando WhatsApp Cloud API Token')
-ON CONFLICT (channel) DO NOTHING;
+    ('00000000-0000-0000-0000-000000000001', 'instagram', 'Instagram Direct API', 'awaiting_connection', 'Aguardando configuração de App Meta & Webhooks'),
+    ('00000000-0000-0000-0000-000000000001', 'messenger', 'Facebook Messenger', 'awaiting_connection', 'Aguardando autenticação Meta Graph API'),
+    ('00000000-0000-0000-0000-000000000001', 'whatsapp', 'WhatsApp Business Cloud API', 'awaiting_connection', 'Aguardando WhatsApp Cloud API Token')
+ON CONFLICT (workspace_id, channel) DO NOTHING;
 `;
 
 export const SupabaseSchemaModal: React.FC<SupabaseSchemaModalProps> = ({ isOpen, onClose }) => {

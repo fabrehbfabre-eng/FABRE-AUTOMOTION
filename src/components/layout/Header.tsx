@@ -105,11 +105,11 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, onOpenArchitectureMod
         {isAuthenticated && (
           <div className="flex items-center gap-2 pl-2 border-l border-neutral-800/80">
             <div className="text-right hidden lg:block">
-              <p className="text-xs font-semibold text-neutral-200 truncate max-w-[130px]" title={user?.email || ''}>
-                {user?.email}
+              <p className="text-xs font-semibold text-neutral-200 truncate max-w-[150px]" title={user?.email || ''}>
+                {user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email}
               </p>
               <p className="text-[10px] font-mono text-cyan-400 uppercase">
-                {role || 'operador'}
+                {role || 'usuário'}
               </p>
             </div>
             <button

@@ -41,6 +41,8 @@ serve(async (req: Request) => {
     const hasOpenAIKey = Boolean(Deno.env.get("OPENAI_API_KEY"));
     const hasMetaSecret = Boolean(Deno.env.get("META_APP_SECRET"));
     const hasWhatsAppToken = Boolean(Deno.env.get("WHATSAPP_ACCESS_TOKEN"));
+    const hasWhatsAppPhoneId = Boolean(Deno.env.get("WHATSAPP_PHONE_NUMBER_ID"));
+    const hasWhatsAppWabaId = Boolean(Deno.env.get("WHATSAPP_BUSINESS_ACCOUNT_ID"));
 
     const healthData = {
       status: "ok",
@@ -54,6 +56,8 @@ serve(async (req: Request) => {
         openAiReady: hasOpenAIKey,
         metaReady: hasMetaSecret,
         whatsAppReady: hasWhatsAppToken,
+        whatsAppPhoneConfigured: hasWhatsAppPhoneId,
+        whatsAppWabaConfigured: hasWhatsAppWabaId,
       },
     };
 

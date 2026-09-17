@@ -24,6 +24,8 @@ export interface AuthContextType {
   isLoading: boolean;
   isConfigured: boolean;
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  signUp: (email: string, password: string, fullName: string) => Promise<{ success: boolean; needsEmailConfirmation?: boolean; error?: string }>;
+  signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
 }
 
@@ -115,10 +117,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) {
         let userMessage = error.message;
-        if (error.message.includes('Invalid login credentials')) {
-          userMessage = 'E-mail ou senha incorretos. Verifique suas credenciais.';
-        } else if (error.message.includes('Email not confirmed')) {
-          userMessage = 'O e-mail deste operador ainda não foi confirmado.';
+        const lower = error.message.toLowerCase();
+        if (lower.includes('invalid login credentials') || lower.includes('invalid credentials')) {
+          userMessage = 'E-mail ou senha incorretos.';
+        } else if (lower.includes('email not confirmed')) {
+          userMessage = 'O e-mail deste usuário ainda não foi confirmado. Verifique sua caixa de entrada para confirmar seu endereço.';
+        } else if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('connection')) {
+          userMessage = 'Não foi possível conectar ao serviço. Verifique sua conexão e tente novamente.';
         }
         return { success: false, error: userMessage };
       }
@@ -129,10 +134,111 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: true };
       }
 
-      return { success: false, error: 'Não foi possível estabelecer uma sessão de operador.' };
+      return { success: false, error: 'Não foi possível estabelecer uma sessão de usuário.' };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: `Erro na tentativa de autenticação: ${msg}` };
+    }
+  }, [isConfigured]);
+
+  // Sign Up with email, password & full name
+  const signUp = useCallback(async (
+    email: string,
+    password: string,
+    fullName: string
+  ): Promise<{ success: boolean; needsEmailConfirmation?: boolean; error?: string }> => {
+    const client = getSupabaseClient();
+    if (!client || !isConfigured) {
+      return {
+        success: false,
+        error: 'Supabase não está configurado neste ambiente. Verifique VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY.',
+      };
+    }
+
+    try {
+      const { data, error } = await client.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: {
+            full_name: fullName.trim(),
+          },
+        },
+      });
+
+      if (error) {
+        let userMessage = error.message;
+        const lower = error.message.toLowerCase();
+        if (lower.includes('user already registered') || lower.includes('already exists') || lower.includes('identity already exists')) {
+          userMessage = 'Este e-mail já possui uma conta. Faça login ou utilize outro e-mail.';
+        } else if (lower.includes('password') && (lower.includes('least 6') || lower.includes('short') || lower.includes('weak'))) {
+          userMessage = 'A senha deve ter pelo menos 6 caracteres.';
+        } else if (lower.includes('invalid email') || lower.includes('valid email')) {
+          userMessage = 'Informe um e-mail válido.';
+        } else if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('connection')) {
+          userMessage = 'Não foi possível conectar ao serviço. Verifique sua conexão e tente novamente.';
+        }
+        return { success: false, error: userMessage };
+      }
+
+      // Check if email confirmation is required:
+      // When email confirmation is enabled in Supabase, data.session is null and user confirmation_sent_at is set.
+      // If email confirmation is disabled, data.session contains the active session immediately.
+      const needsEmailConfirmation = !data?.session;
+
+      if (data?.session && data?.user) {
+        setSession(data.session);
+        setUser(data.user);
+      }
+
+      return {
+        success: true,
+        needsEmailConfirmation,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, error: `Erro ao criar conta: ${msg}` };
+    }
+  }, [isConfigured]);
+
+  // Sign In / Sign Up with Google OAuth
+  const signInWithGoogle = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
+    const client = getSupabaseClient();
+    if (!client || !isConfigured) {
+      return {
+        success: false,
+        error: 'Supabase não está configurado neste ambiente. Verifique VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY.',
+      };
+    }
+
+    try {
+      const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined;
+      const { data, error } = await client.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+        },
+      });
+
+      if (error) {
+        let userMessage = error.message;
+        const lower = error.message.toLowerCase();
+        if (lower.includes('unsupported provider') || lower.includes('not enabled') || lower.includes('validation_failed')) {
+          userMessage = 'O login com Google ainda não foi ativado no painel do Supabase (Authentication > Providers > Google). Ative o provedor com seu Google Client ID e Secret.';
+        } else if (lower.includes('network') || lower.includes('failed to fetch')) {
+          userMessage = 'Não foi possível conectar ao serviço. Verifique sua conexão e tente novamente.';
+        }
+        return { success: false, error: userMessage };
+      }
+
+      if (data?.url && typeof window !== 'undefined') {
+        window.location.href = data.url;
+      }
+
+      return { success: true };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, error: `Erro ao iniciar autenticação com Google: ${msg}` };
     }
   }, [isConfigured]);
 
@@ -159,8 +265,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isLoading,
     isConfigured,
     signIn,
+    signUp,
+    signInWithGoogle,
     signOut,
-  }), [user, session, role, isOperatorOrAdmin, isAuthenticated, isLoading, isConfigured, signIn, signOut]);
+  }), [user, session, role, isOperatorOrAdmin, isAuthenticated, isLoading, isConfigured, signIn, signUp, signInWithGoogle, signOut]);
 
   return (
     <AuthContext.Provider value={value}>

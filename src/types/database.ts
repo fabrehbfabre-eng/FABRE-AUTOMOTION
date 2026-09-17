@@ -15,6 +15,90 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
+      workspaces: {
+        Row: {
+          id: string;
+          name: string;
+          slug: string | null;
+          owner_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          slug?: string | null;
+          owner_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          slug?: string | null;
+          owner_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      workspace_members: {
+        Row: {
+          id: string;
+          workspace_id: string;
+          user_id: string;
+          role: 'owner' | 'admin' | 'operator' | 'viewer';
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          workspace_id: string;
+          user_id: string;
+          role?: 'owner' | 'admin' | 'operator' | 'viewer';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          workspace_id?: string;
+          user_id?: string;
+          role?: 'owner' | 'admin' | 'operator' | 'viewer';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      app_users: {
+        Row: {
+          id: string;
+          email: string;
+          full_name: string;
+          avatar_url: string | null;
+          system_role: 'user' | 'system_admin';
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id: string;
+          email: string;
+          full_name: string;
+          avatar_url?: string | null;
+          system_role?: 'user' | 'system_admin';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          email?: string;
+          full_name?: string;
+          avatar_url?: string | null;
+          system_role?: 'user' | 'system_admin';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       profiles: {
         Row: {
           id: string;
@@ -313,6 +397,7 @@ export interface Database {
       channel_connections: {
         Row: {
           id: string;
+          workspace_id: string;
           channel: 'instagram' | 'messenger' | 'whatsapp';
           name: string;
           account_handle: string | null;
@@ -326,6 +411,7 @@ export interface Database {
         };
         Insert: {
           id?: string;
+          workspace_id?: string;
           channel: 'instagram' | 'messenger' | 'whatsapp';
           name: string;
           account_handle?: string | null;
@@ -339,6 +425,7 @@ export interface Database {
         };
         Update: {
           id?: string;
+          workspace_id?: string;
           channel?: 'instagram' | 'messenger' | 'whatsapp';
           name?: string;
           account_handle?: string | null;

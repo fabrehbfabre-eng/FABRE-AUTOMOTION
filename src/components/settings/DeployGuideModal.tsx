@@ -104,7 +104,8 @@ supabase secrets set \\
   META_APP_SECRET="sua_chave_secreta_meta" \\
   META_WEBHOOK_VERIFY_TOKEN="seu_token_de_verificacao" \\
   WHATSAPP_ACCESS_TOKEN="seu_token_whatsapp" \\
-  WHATSAPP_PHONE_NUMBER_ID="seu_phone_number_id" \\
+  WHATSAPP_PHONE_NUMBER_ID="250763631462152" \\
+  WHATSAPP_BUSINESS_ACCOUNT_ID="293410900513919" \\
   OPENAI_API_KEY="sk-..."`;
 
   return (

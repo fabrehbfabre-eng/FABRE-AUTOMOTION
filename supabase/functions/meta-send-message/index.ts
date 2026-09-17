@@ -53,29 +53,41 @@ serve(async (req: Request) => {
 
   try {
     supabase = getServerSupabaseClient();
-    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-    if (authError || !authData?.user || !authData.user.id) {
-      logSecure("warn", {
-        service: "meta-send-message",
-        action: "jwt_validation",
-        status: "warning",
-        message: `Validação do JWT falhou ou sessão expirada: ${authError?.message || "Usuário não encontrado"}`,
-      });
-      return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
-    }
+    // Allow Service Role Key or valid authenticated Operator / Admin JWT
+    if (serviceRoleKey && token.trim() === serviceRoleKey.trim()) {
+      user = {
+        id: "operator-admin-service",
+        email: "admin@casalfabre.com",
+        role: "authenticated",
+        app_metadata: { role: "admin", can_send_outbound: true }
+      };
+    } else {
+      const { data: authData, error: authError } = await supabase.auth.getUser(token);
 
-    user = authData.user;
+      if (authError || !authData?.user || !authData.user.id) {
+        logSecure("warn", {
+          service: "meta-send-message",
+          action: "jwt_validation",
+          status: "warning",
+          message: `Validação do JWT falhou ou sessão expirada: ${authError?.message || "Usuário não encontrado"}`,
+        });
+        return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+      }
 
-    // Verify authenticated user role (reject 'anon' tokens or service tokens posing as users)
-    if (user.role !== "authenticated") {
-      logSecure("warn", {
-        service: "meta-send-message",
-        action: "jwt_role_check",
-        status: "warning",
-        message: `Token com papel de usuário não autenticado: ${user.role}`,
-      });
-      return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+      user = authData.user;
+
+      // Verify authenticated user role (reject 'anon' tokens or service tokens posing as users)
+      if (user.role !== "authenticated") {
+        logSecure("warn", {
+          service: "meta-send-message",
+          action: "jwt_role_check",
+          status: "warning",
+          message: `Token com papel de usuário não autenticado: ${user.role}`,
+        });
+        return createErrorResponse(401, "Usuário não autenticado ou sessão inválida.", "UNAUTHORIZED");
+      }
     }
   } catch (authException: unknown) {
     const errText = authException instanceof Error ? authException.message : String(authException);
@@ -102,14 +114,40 @@ serve(async (req: Request) => {
   const isExplicitlyAuthorized = appRole === "operator" || appRole === "admin";
   const isDisabled = user.app_metadata?.disabled === true || user.app_metadata?.can_send_outbound === false;
 
-  if (!isExplicitlyAuthorized || isDisabled) {
+  let isAuthorizedMember = false;
+  if (!isExplicitlyAuthorized && !isDisabled) {
+    try {
+      const { data: memberData } = await supabase
+        .from("workspace_members")
+        .select("role, workspace_id")
+        .eq("user_id", user.id)
+        .limit(1)
+        .maybeSingle();
+
+      if (memberData && (memberData.role === "owner" || memberData.role === "admin" || memberData.role === "operator")) {
+        isAuthorizedMember = true;
+      }
+    } catch (memberErr) {
+      logSecure("warn", {
+        service: "meta-send-message",
+        action: "db_workspace_role_check",
+        status: "warning",
+        userId: user.id,
+        message: `Erro ao consultar membros de workspace: ${memberErr instanceof Error ? memberErr.message : String(memberErr)}`,
+      });
+    }
+  }
+
+  const isAuthorized = isExplicitlyAuthorized || isAuthorizedMember;
+
+  if (!isAuthorized || isDisabled) {
     logSecure("warn", {
       service: "meta-send-message",
       action: "operator_authorization",
       status: "warning",
       userId: user.id,
       appRole: appRole || "none",
-      message: `Acesso outbound rejeitado (403): Usuário autenticado (${user.id}) sem permissão explícita de operador/admin (app_metadata.role: ${appRole || "ausente"}, disabled: ${Boolean(isDisabled)})`,
+      message: `Acesso outbound rejeitado (403): Usuário autenticado (${user.id}) sem permissão de operador/admin (app_metadata.role: ${appRole || "ausente"}, workspaceAuthorized: ${isAuthorizedMember}, disabled: ${Boolean(isDisabled)})`,
     });
     return createErrorResponse(403, "Usuário autenticado, mas sem permissão para executar esta operação.", "FORBIDDEN");
   }
@@ -123,10 +161,16 @@ serve(async (req: Request) => {
     return createErrorResponse(400, "Corpo da requisição JSON inválido.", "INVALID_INPUT");
   }
 
-  const { conversationId, text } = payload;
+  let conversationId = typeof payload.conversationId === "string" ? payload.conversationId.trim() : "";
+  const rawRecipientInput = typeof payload.recipientPhone === "string" 
+    ? payload.recipientPhone 
+    : typeof payload.to === "string" 
+    ? payload.to 
+    : "";
+  const { text } = payload;
 
-  if (!conversationId || typeof conversationId !== "string" || !conversationId.trim()) {
-    return createErrorResponse(400, "Campo obrigatório ausente ou inválido: conversationId.", "INVALID_INPUT");
+  if (!conversationId && !rawRecipientInput) {
+    return createErrorResponse(400, "Campo obrigatório ausente: informe 'conversationId' ou 'recipientPhone'.", "INVALID_INPUT");
   }
 
   if (!text || typeof text !== "string" || !text.trim()) {
@@ -139,44 +183,123 @@ serve(async (req: Request) => {
   }
 
   try {
-    // 6. Fetch Target Conversation
-    const { data: conversation, error: convErr } = await supabase
-      .from("conversations")
-      .select("id, contact_id, channel, status, handler")
-      .eq("id", conversationId.trim())
-      .single();
+    let conversation: any = null;
+    let contact: any = null;
+    let channel = "whatsapp";
+    let recipientPhone = "";
 
-    if (convErr || !conversation) {
-      logSecure("warn", {
-        service: "meta-send-message",
-        action: "find_conversation",
-        status: "warning",
-        message: `Conversa não encontrada: ${conversationId}`,
-      });
-      return createErrorResponse(404, `Conversa não encontrada: ${conversationId}`, "NOT_FOUND");
+    // If conversationId is provided, resolve existing conversation and profile
+    if (conversationId) {
+      const { data: convData, error: convErr } = await supabase
+        .from("conversations")
+        .select("id, contact_id, channel, status, handler")
+        .eq("id", conversationId)
+        .single();
+
+      if (convErr || !convData) {
+        logSecure("warn", {
+          service: "meta-send-message",
+          action: "find_conversation",
+          status: "warning",
+          message: `Conversa não encontrada: ${conversationId}`,
+        });
+        return createErrorResponse(404, `Conversa não encontrada: ${conversationId}`, "NOT_FOUND");
+      }
+
+      conversation = convData;
+      channel = conversation.channel;
+
+      const { data: contactData, error: contactErr } = await supabase
+        .from("profiles")
+        .select("id, name, username, phone, channel, metadata")
+        .eq("id", conversation.contact_id)
+        .single();
+
+      if (contactErr || !contactData) {
+        return createErrorResponse(404, `Contato associado à conversa não encontrado: ${conversation.contact_id}`, "NOT_FOUND");
+      }
+
+      contact = contactData;
+      const rawPhone = contact.phone || (contact.metadata as any)?.wa_id || contact.username?.replace(/^wa_/, "");
+      recipientPhone = (rawPhone || "").replace(/\D/g, "");
+    } else {
+      // Direct recipient phone provided for E2E validation test
+      recipientPhone = rawRecipientInput.replace(/\D/g, "");
+      if (!recipientPhone || recipientPhone.length < 8) {
+        return createErrorResponse(400, "Número de telefone de destino inválido (mínimo de 8 dígitos numéricos).", "INVALID_INPUT");
+      }
+
+      // Find or create profile for this WhatsApp contact
+      const { data: existingProfiles } = await supabase
+        .from("profiles")
+        .select("id, name, username, phone, channel, metadata")
+        .eq("channel", "whatsapp")
+        .or(`username.eq.wa_${recipientPhone},username.eq.${recipientPhone},phone.eq.${recipientPhone}`)
+        .limit(1);
+
+      if (existingProfiles && existingProfiles.length > 0) {
+        contact = existingProfiles[0];
+      } else {
+        const { data: newProfile, error: profileErr } = await supabase
+          .from("profiles")
+          .insert({
+            name: `WhatsApp (+${recipientPhone})`,
+            username: `wa_${recipientPhone}`,
+            phone: recipientPhone,
+            channel: "whatsapp",
+            metadata: {
+              wa_id: recipientPhone,
+              platform: "whatsapp",
+              origin: "e2e_validation_test",
+            },
+            last_active_at: new Date().toISOString(),
+          })
+          .select("id, name, username, phone, channel, metadata")
+          .single();
+
+        if (profileErr || !newProfile) {
+          return createErrorResponse(500, `Falha ao registrar perfil de contato para o teste: ${profileErr?.message}`, "INTERNAL_ERROR");
+        }
+        contact = newProfile;
+      }
+
+      // Find or create conversation for this WhatsApp contact
+      const { data: existingConvs } = await supabase
+        .from("conversations")
+        .select("id, contact_id, channel, status, handler")
+        .eq("contact_id", contact.id)
+        .eq("channel", "whatsapp")
+        .limit(1);
+
+      if (existingConvs && existingConvs.length > 0) {
+        conversation = existingConvs[0];
+      } else {
+        const { data: newConv, error: newConvErr } = await supabase
+          .from("conversations")
+          .insert({
+            contact_id: contact.id,
+            channel: "whatsapp",
+            status: "open",
+            handler: "human",
+            unread_count: 0,
+            metadata: {
+              origin: "e2e_validation_test",
+              tested_by: user.id,
+            },
+          })
+          .select("id, contact_id, channel, status, handler")
+          .single();
+
+        if (newConvErr || !newConv) {
+          return createErrorResponse(500, `Falha ao criar conversa para o teste: ${newConvErr?.message}`, "INTERNAL_ERROR");
+        }
+        conversation = newConv;
+      }
+
+      conversationId = conversation.id;
     }
-
-    // 7. Fetch Contact Profile
-    const { data: contact, error: contactErr } = await supabase
-      .from("profiles")
-      .select("id, name, username, phone, channel, metadata")
-      .eq("id", conversation.contact_id)
-      .single();
-
-    if (contactErr || !contact) {
-      logSecure("warn", {
-        service: "meta-send-message",
-        action: "find_contact",
-        status: "warning",
-        message: `Perfil de contato não localizado: ${conversation.contact_id}`,
-      });
-      return createErrorResponse(404, `Contato associado à conversa não encontrado: ${conversation.contact_id}`, "NOT_FOUND");
-    }
-
-    const channel = conversation.channel;
 
     // 8. Channel Outbound Certification Verification
-    // Instagram & Messenger are not yet certified for outbound in this release
     if (channel === "instagram" || channel === "messenger") {
       logSecure("info", {
         service: "meta-send-message",
@@ -196,10 +319,6 @@ serve(async (req: Request) => {
       return createErrorResponse(400, `Canal não suportado para envio outbound: ${channel}`, "INVALID_INPUT");
     }
 
-    // 9. WhatsApp Outbound Parameters Resolution
-    const rawPhone = contact.phone || (contact.metadata as any)?.wa_id || contact.username?.replace(/^wa_/, "");
-    const recipientPhone = (rawPhone || "").replace(/\D/g, "");
-
     if (!recipientPhone || recipientPhone.length < 8) {
       return createErrorResponse(
         400,
@@ -208,10 +327,11 @@ serve(async (req: Request) => {
       );
     }
 
-    // Resolve WhatsApp Phone Number ID (from env or channel connection metadata)
-    let phoneNumberId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID") || (contact.metadata as any)?.phone_number_id;
+    // 9. Resolve WhatsApp Phone Number ID & WABA ID (Canonical ADM01 Enforced)
+    let phoneNumberId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID") || (contact?.metadata as any)?.phone_number_id;
+    let wabaId = Deno.env.get("WHATSAPP_BUSINESS_ACCOUNT_ID");
 
-    if (!phoneNumberId) {
+    if (!phoneNumberId || !wabaId) {
       const { data: channelConn } = await supabase
         .from("channel_connections")
         .select("metadata")
@@ -219,8 +339,22 @@ serve(async (req: Request) => {
         .single();
 
       if (channelConn?.metadata && typeof channelConn.metadata === "object") {
-        phoneNumberId = (channelConn.metadata as any).phone_number_id;
+        if (!phoneNumberId) {
+          phoneNumberId = (channelConn.metadata as any).phone_number_id;
+        }
+        if (!wabaId) {
+          wabaId = (channelConn.metadata as any).waba_id || (channelConn.metadata as any).business_account_id;
+        }
       }
+    }
+
+    // Strict Canonical Fallbacks for ADM01 Official Asset
+    if (!phoneNumberId) {
+      phoneNumberId = "250763631462152";
+    }
+
+    if (!wabaId || wabaId === "2263873424408708") {
+      wabaId = "293410900513919";
     }
 
     if (!phoneNumberId) {
@@ -321,8 +455,11 @@ serve(async (req: Request) => {
         },
       });
 
+      const isTemplateRequired = errCode === 131047 || errCode === 131026;
       let userFriendlyMsg = `Falha na Meta Cloud API [${errCode}]: ${errMsg}`;
-      if (errCode === 131030) {
+      if (isTemplateRequired) {
+        userFriendlyMsg = `Janela de 24 horas fechada pela Meta (Código ${errCode}). Para iniciar conversas, a política da Meta exige o envio de uma mensagem template pré-aprovada, ou que o usuário envie uma mensagem primeiro para abrir a janela de conversa gratuita de 24h.`;
+      } else if (errCode === 131030) {
         userFriendlyMsg = `Número de telefone não autorizado no modo de desenvolvimento Meta (Código 131030). Adicione este número como 'Test Number' no painel de desenvolvedores Meta.`;
       } else if (errCode === 190) {
         userFriendlyMsg = `Token da WhatsApp Business Cloud API expirou ou é inválido (Código 190). Atualize a Secret WHATSAPP_ACCESS_TOKEN.`;
@@ -331,8 +468,19 @@ serve(async (req: Request) => {
       return createErrorResponse(
         metaRes.status >= 500 ? 502 : 400,
         userFriendlyMsg,
-        "INTERNAL_ERROR",
-        { metaCode: errCode }
+        "META_API_ERROR",
+        {
+          status: "FAILED",
+          httpStatus: metaRes.status,
+          metaCode: errCode,
+          metaError: errMsg,
+          phoneNumberId,
+          wabaId,
+          endpoint: metaApiUrl,
+          destination: recipientPhone,
+          isTemplateRequired,
+          timestamp: new Date().toISOString()
+        }
       );
     }
 
@@ -359,6 +507,8 @@ serve(async (req: Request) => {
           operator_email: user.email || null,
           recipient: recipientPhone,
           phone_number_id: phoneNumberId,
+          waba_id: wabaId,
+          portfolio: "ADM01",
           meta_message_id: externalMessageId,
         },
       })
@@ -401,6 +551,15 @@ serve(async (req: Request) => {
 
     return createSuccessResponse({
       status: "SUCCESS",
+      httpStatus: metaRes.status,
+      metaMessageId: externalMessageId,
+      externalId: externalMessageId,
+      phoneNumberId,
+      wabaId,
+      endpoint: metaApiUrl,
+      destination: recipientPhone,
+      timestamp: new Date().toISOString(),
+      conversationId: insertedMsg.conversation_id,
       message: {
         id: insertedMsg.id,
         conversationId: insertedMsg.conversation_id,
@@ -412,7 +571,6 @@ serve(async (req: Request) => {
         externalEventId: insertedMsg.external_event_id,
         createdAt: insertedMsg.created_at,
       },
-      externalId: externalMessageId,
     });
   } catch (unexpectedErr: unknown) {
     const errorMsg = unexpectedErr instanceof Error ? unexpectedErr.message : String(unexpectedErr);

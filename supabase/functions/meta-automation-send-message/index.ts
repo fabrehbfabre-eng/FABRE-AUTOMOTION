@@ -376,8 +376,9 @@ serve(async (req: Request) => {
 
     // 11. Resolve WhatsApp Server-Side Credentials
     let phoneNumberId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID") || (contact.metadata as any)?.phone_number_id;
+    let wabaId = Deno.env.get("WHATSAPP_BUSINESS_ACCOUNT_ID");
 
-    if (!phoneNumberId) {
+    if (!phoneNumberId || !wabaId) {
       const { data: channelConn } = await supabase
         .from("channel_connections")
         .select("metadata")
@@ -385,8 +386,17 @@ serve(async (req: Request) => {
         .single();
 
       if (channelConn?.metadata && typeof channelConn.metadata === "object") {
-        phoneNumberId = (channelConn.metadata as any).phone_number_id;
+        if (!phoneNumberId) {
+          phoneNumberId = (channelConn.metadata as any).phone_number_id;
+        }
+        if (!wabaId) {
+          wabaId = (channelConn.metadata as any).waba_id || (channelConn.metadata as any).business_account_id;
+        }
       }
+    }
+
+    if (!wabaId) {
+      wabaId = "293410900513919"; // Referência canônica ADM01
     }
 
     if (!phoneNumberId) {
@@ -594,6 +604,8 @@ serve(async (req: Request) => {
           isAutomated: true,
           recipient: recipientPhone,
           phone_number_id: phoneNumberId,
+          waba_id: wabaId,
+          portfolio: "ADM01",
           triggeredByMessageId: messageId || null,
           externalEventId: externalEventId || null,
           meta_message_id: wamid,

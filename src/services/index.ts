@@ -14,5 +14,6 @@ export * from './MetaService';
 export * from './WhatsAppService';
 export * from './HealthCheckService';
 export * from './InstagramIngestionService';
+export * from './InstagramOAuthService';
 export * from './normalizers/WebhookNormalizer';
 export * from './engine';

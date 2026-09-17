@@ -33,8 +33,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeAutomationsCount = 2,
 }) => {
   const { user, role, signOut, isAuthenticated } = useAuth();
-  const userInitials = user?.email ? user.email.substring(0, 2).toUpperCase() : 'CF';
-  const displayRole = role === 'admin' ? 'Administrador' : role === 'operator' ? 'Operador' : 'Autenticado';
+  const rawName = user?.user_metadata?.full_name || user?.user_metadata?.name || '';
+  const fullName = typeof rawName === 'string' ? rawName.trim() : '';
+  const userInitials = fullName
+    ? fullName.split(/\s+/).filter(Boolean).map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()
+    : user?.email
+    ? user.email.substring(0, 2).toUpperCase()
+    : 'CF';
+  const displayRole = role === 'admin' ? 'Administrador' : role === 'operator' ? 'Operador' : 'Usuário';
   const navItems = [
     {
       key: 'dashboard' as NavItemKey,
@@ -70,7 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       key: 'settings' as NavItemKey,
       label: 'Configurações',
       icon: Settings,
-      description: 'Canais, Meta, OpenAI, Supabase',
+      description: 'Empresa, canais e atendimento',
     },
   ];
 
@@ -168,8 +174,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {userInitials}
             </div>
             <div className="min-w-0">
-              <p className="text-xs font-semibold text-neutral-200 truncate" title={user?.email || 'Casal Fabre'}>
-                {user?.email ? user.email.split('@')[0] : 'Casal Fabre'}
+              <p className="text-xs font-semibold text-neutral-200 truncate" title={fullName || user?.email || 'Casal Fabre'}>
+                {fullName || (user?.email ? user.email.split('@')[0] : 'Casal Fabre')}
               </p>
               <p className="text-[10px] text-neutral-400 truncate flex items-center gap-1">
                 <Sparkles size={10} className="text-cyan-400 shrink-0" />

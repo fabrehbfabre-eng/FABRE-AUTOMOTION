@@ -5,7 +5,7 @@
  * Provides production-grade persistence for delayed actions and scheduled automation jobs.
  */
 
-import { supabase } from '../../../lib/supabase';
+import { getSupabaseClient } from '../../../lib/supabase';
 import { AutomationJob, AutomationJobStatus, CreateJobInput, ClaimJobsOptions } from '../../../types/jobs';
 import { IAutomationJobRepository } from '../IAutomationJobRepository';
 import { Database, Json } from '../../../types/database';
@@ -35,8 +35,16 @@ function mapJobFromRow(row: any): AutomationJob {
 }
 
 export class SupabaseAutomationJobRepository implements IAutomationJobRepository {
+  private get client() {
+    const client = getSupabaseClient();
+    if (!client) {
+      throw new Error('Supabase client is not configured or available');
+    }
+    return client;
+  }
+
   async createJob(input: CreateJobInput): Promise<AutomationJob> {
-    const { data, error } = await supabase
+    const { data, error } = await this.client
       .from('automation_jobs')
       .insert({
         automation_id: input.automationId,
@@ -68,7 +76,7 @@ export class SupabaseAutomationJobRepository implements IAutomationJobRepository
 
     // Prefer transactional RPC with FOR UPDATE SKIP LOCKED
     try {
-      const { data: rpcData, error: rpcError } = await supabase.rpc('claim_due_automation_jobs', {
+      const { data: rpcData, error: rpcError } = await this.client.rpc('claim_due_automation_jobs', {
         p_limit: limit,
         p_worker_id: workerId,
       });
@@ -82,7 +90,7 @@ export class SupabaseAutomationJobRepository implements IAutomationJobRepository
 
     // Fallback if RPC is not present: optimistic locking
     const nowIso = options?.now ? options.now.toISOString() : new Date().toISOString();
-    const { data: candidates, error: selectError } = await supabase
+    const { data: candidates, error: selectError } = await this.client
       .from('automation_jobs')
       .select('*')
       .eq('status', 'pending')
@@ -96,7 +104,7 @@ export class SupabaseAutomationJobRepository implements IAutomationJobRepository
 
     const claimed: AutomationJob[] = [];
     for (const row of candidates) {
-      const { data: updated, error: updateError } = await supabase
+      const { data: updated, error: updateError } = await this.client
         .from('automation_jobs')
         .update({
           status: 'processing',
@@ -119,7 +127,7 @@ export class SupabaseAutomationJobRepository implements IAutomationJobRepository
 
   async markCompleted(jobId: string): Promise<AutomationJob> {
     const now = new Date().toISOString();
-    const { data, error } = await supabase
+    const { data, error } = await this.client
       .from('automation_jobs')
       .update({
         status: 'completed',
@@ -139,7 +147,7 @@ export class SupabaseAutomationJobRepository implements IAutomationJobRepository
 
   async markFailed(jobId: string, error: string): Promise<AutomationJob> {
     const now = new Date().toISOString();
-    const { data, error: updateError } = await supabase
+    const { data, error: updateError } = await this.client
       .from('automation_jobs')
       .update({
         status: 'failed',
@@ -179,7 +187,7 @@ export class SupabaseAutomationJobRepository implements IAutomationJobRepository
       updates.scheduled_at = nextScheduledAt;
     }
 
-    const { data, error: updateError } = await supabase
+    const { data, error: updateError } = await this.client
       .from('automation_jobs')
       .update(updates)
       .eq('id', jobId)
@@ -208,7 +216,7 @@ export class SupabaseAutomationJobRepository implements IAutomationJobRepository
     }
 
     const now = new Date().toISOString();
-    const { data, error } = await supabase
+    const { data, error } = await this.client
       .from('automation_jobs')
       .update({
         status: 'cancelled',
@@ -231,7 +239,7 @@ export class SupabaseAutomationJobRepository implements IAutomationJobRepository
     options?: { jobType?: string; reason?: string }
   ): Promise<AutomationJob[]> {
     const now = new Date().toISOString();
-    let query = supabase
+    let query = this.client
       .from('automation_jobs')
       .update({
         status: 'cancelled',
@@ -256,7 +264,7 @@ export class SupabaseAutomationJobRepository implements IAutomationJobRepository
   async recoverStaleJobs(staleThresholdMs = 5 * 60 * 1000, now = new Date()): Promise<AutomationJob[]> {
     const thresholdIso = new Date(now.getTime() - staleThresholdMs).toISOString();
 
-    const { data: staleRows, error } = await supabase
+    const { data: staleRows, error } = await this.client
       .from('automation_jobs')
       .select('*')
       .eq('status', 'processing')
@@ -287,7 +295,7 @@ export class SupabaseAutomationJobRepository implements IAutomationJobRepository
         updates.last_error = 'Stale processing timeout exceeded max attempts';
       }
 
-      const { data: updated } = await supabase
+      const { data: updated } = await this.client
         .from('automation_jobs')
         .update(updates)
         .eq('id', row.id)
@@ -303,7 +311,7 @@ export class SupabaseAutomationJobRepository implements IAutomationJobRepository
   }
 
   async getJobById(jobId: string): Promise<AutomationJob | null> {
-    const { data, error } = await supabase
+    const { data, error } = await this.client
       .from('automation_jobs')
       .select('*')
       .eq('id', jobId)
@@ -314,7 +322,7 @@ export class SupabaseAutomationJobRepository implements IAutomationJobRepository
   }
 
   async getJobByIdempotencyKey(key: string): Promise<AutomationJob | null> {
-    const { data, error } = await supabase
+    const { data, error } = await this.client
       .from('automation_jobs')
       .select('*')
       .eq('idempotency_key', key)
@@ -330,7 +338,7 @@ export class SupabaseAutomationJobRepository implements IAutomationJobRepository
     automationId?: string;
     limit?: number;
   }): Promise<AutomationJob[]> {
-    let query = supabase.from('automation_jobs').select('*');
+    let query = this.client.from('automation_jobs').select('*');
 
     if (filter?.status) {
       query = query.eq('status', filter.status);

@@ -50,9 +50,12 @@ $SUPABASE_BIN functions deploy meta-send-message --no-verify-jwt $PROJECT_FLAG
 echo "📦 [6/7] Publicando meta-automation-send-message..."
 $SUPABASE_BIN functions deploy meta-automation-send-message --no-verify-jwt $PROJECT_FLAG
 
-echo "📦 [7/7] Publicando automation-job-worker..."
+echo "📦 [7/8] Publicando automation-job-worker..."
 $SUPABASE_BIN functions deploy automation-job-worker --no-verify-jwt $PROJECT_FLAG
+
+echo "📦 [8/8] Publicando instagram-oauth..."
+$SUPABASE_BIN functions deploy instagram-oauth --no-verify-jwt $PROJECT_FLAG
 
 echo ""
 echo "🎉 DEPLOY CONCLUÍDO COM SUCESSO!"
-echo "As 7 Edge Functions do FABRE AUTOMATION foram publicadas com sucesso."
+echo "As 8 Edge Functions do FABRE AUTOMATION foram publicadas com sucesso."

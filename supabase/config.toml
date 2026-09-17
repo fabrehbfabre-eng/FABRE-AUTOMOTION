@@ -43,3 +43,6 @@ verify_jwt = false
 
 [functions.automation-job-worker]
 verify_jwt = false
+
+[functions.instagram-oauth]
+verify_jwt = false

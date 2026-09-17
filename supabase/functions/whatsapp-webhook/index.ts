@@ -171,6 +171,20 @@ serve(async (req: Request) => {
       let lastEventId = "";
 
       for (const entry of entries) {
+        const wabaId = entry.id;
+
+        // Security check: Ignore events from unverified portfolio Casal Fabre 1 (WABA 2263873424408708)
+        if (wabaId === "2263873424408708") {
+          logSecure("warn", {
+            service: "whatsapp-webhook",
+            action: "filter_unverified_waba",
+            status: "ignored",
+            channel: "whatsapp",
+            message: "Evento ignorado: WABA 2263873424408708 (Casal Fabre 1) não é o ativo canônico. O ativo oficial é ADM01 (293410900513919).",
+          });
+          continue;
+        }
+
         const changes = entry.changes || [];
         for (const change of changes) {
           if (change.field !== "messages") {
@@ -462,8 +476,10 @@ serve(async (req: Request) => {
                   wa_message_id: rawMessageId,
                   message_type: msgType,
                   sender_phone: senderPhone,
-                  phone_number_id: phoneNumberId,
-                  display_phone_number: displayPhoneNumber,
+                  phone_number_id: phoneNumberId || "250763631462152",
+                  display_phone_number: displayPhoneNumber || "+55 14 98840-3642",
+                  waba_id: wabaId || Deno.env.get("WHATSAPP_BUSINESS_ACCOUNT_ID") || "293410900513919",
+                  portfolio: "ADM01",
                   raw_type: msgType,
                   platform: "whatsapp_cloud_api",
                 },
@@ -492,15 +508,24 @@ serve(async (req: Request) => {
               continue;
             }
 
-            // 3.8 Update Channel Connection status in database
+            // 3.8 Update Channel Connection status in database with canonical ADM01 metadata
             await supabase
               .from("channel_connections")
               .update({
                 status: "connected",
-                status_message: "Webhook ativo e recebendo mensagens do WhatsApp",
-                account_handle: displayPhoneNumber ? `WhatsApp (${displayPhoneNumber})` : `WhatsApp (${senderPhone})`,
+                status_message: "Webhook ativo e conectado ao ativo oficial Casal Fabre (ADM01)",
+                account_handle: "@casalfabre",
                 last_sync_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
+                metadata: {
+                  phone_number_id: phoneNumberId || "250763631462152",
+                  waba_id: wabaId || Deno.env.get("WHATSAPP_BUSINESS_ACCOUNT_ID") || "293410900513919",
+                  business_account_id: wabaId || Deno.env.get("WHATSAPP_BUSINESS_ACCOUNT_ID") || "293410900513919",
+                  portfolio: "ADM01",
+                  display_phone_number: displayPhoneNumber || "+55 14 98840-3642",
+                  verified_name: "Casal Fabre",
+                  username: "@casalfabre",
+                },
               })
               .eq("channel", "whatsapp");
 

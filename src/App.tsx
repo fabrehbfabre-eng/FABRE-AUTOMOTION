@@ -71,7 +71,12 @@ function AuthenticatedApp() {
 
       {activeTab === 'knowledge' && <KnowledgePage />}
 
-      {activeTab === 'settings' && <SettingsPage />}
+      {activeTab === 'settings' && (
+        <SettingsPage
+          onNavigate={setActiveTab}
+          onSelectConversation={handleSelectConversationFromDashboard}
+        />
+      )}
 
       {/* Architecture Spec Modal */}
       <ArchitectureSpecModal

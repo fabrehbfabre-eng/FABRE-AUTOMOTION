@@ -30,10 +30,18 @@ export const INITIAL_CONNECTIONS: Record<'instagram' | 'messenger' | 'whatsapp',
   whatsapp: {
     id: 'conn_wa_01',
     channel: 'whatsapp',
-    name: 'WhatsApp Business Cloud',
-    accountHandle: 'Número WhatsApp (Aguardando Conexão)',
-    status: 'awaiting_connection',
-    statusMessage: 'Aguardando WhatsApp Cloud API Token & Webhook',
+    name: 'WhatsApp Business (Casal Fabre)',
+    accountHandle: '@casalfabre',
+    status: 'connected',
+    statusMessage: 'Conectado ao ativo oficial Casal Fabre (Portfólio ADM01)',
+    metadata: {
+      phone_number_id: '250763631462152',
+      waba_id: '293410900513919',
+      portfolio: 'ADM01',
+      display_phone_number: '+55 14 98840-3642',
+      verified_name: 'Casal Fabre',
+      username: '@casalfabre',
+    },
   },
 };
 

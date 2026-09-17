@@ -11,18 +11,31 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Database } from '../types/database';
 
-const getEnvVar = (key: string): string | undefined => {
-  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
-    return import.meta.env[key] as string;
+// Static Vite-friendly resolution without hardcoded fallback credentials
+const resolveSupabaseUrl = (): string => {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) {
+    return import.meta.env.VITE_SUPABASE_URL;
   }
-  if (typeof process !== 'undefined' && process.env && process.env[key]) {
-    return process.env[key];
+  if (typeof process !== 'undefined' && process.env?.VITE_SUPABASE_URL) {
+    return process.env.VITE_SUPABASE_URL;
   }
-  return undefined;
+  return '';
 };
 
-const supabaseUrl = getEnvVar('VITE_SUPABASE_URL');
-const supabaseKey = getEnvVar('VITE_SUPABASE_PUBLISHABLE_KEY') || getEnvVar('VITE_SUPABASE_ANON_KEY');
+const resolveSupabaseKey = (): string => {
+  if (typeof import.meta !== 'undefined') {
+    if (import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY) return import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    if (import.meta.env?.VITE_SUPABASE_ANON_KEY) return import.meta.env.VITE_SUPABASE_ANON_KEY;
+  }
+  if (typeof process !== 'undefined') {
+    if (process.env?.VITE_SUPABASE_PUBLISHABLE_KEY) return process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    if (process.env?.VITE_SUPABASE_ANON_KEY) return process.env.VITE_SUPABASE_ANON_KEY;
+  }
+  return '';
+};
+
+const supabaseUrl = resolveSupabaseUrl();
+const supabaseKey = resolveSupabaseKey();
 
 const isValidUrl = (url?: string): boolean => {
   if (!url) return false;
@@ -40,7 +53,8 @@ export const isSupabaseConfigured = (): boolean => {
     supabaseKey && 
     isValidUrl(supabaseUrl) && 
     supabaseKey.trim().length > 10 &&
-    !supabaseUrl.includes('your-project-id')
+    !supabaseUrl.includes('your-project-id') &&
+    !supabaseUrl.includes('seu-projeto')
   );
 };
 
@@ -51,6 +65,98 @@ export const getSupabaseConfig = () => {
     isConfigured: isSupabaseConfigured(),
   };
 };
+
+export interface PublicAuthProviders {
+  google: boolean;
+  email: boolean;
+}
+
+export async function checkAuthProviders(): Promise<PublicAuthProviders> {
+  if (!isSupabaseConfigured()) {
+    return { google: false, email: false };
+  }
+  try {
+    const res = await fetch(`${supabaseUrl}/auth/v1/settings`, {
+      headers: {
+        apikey: supabaseKey,
+      },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        google: Boolean(data?.external?.google),
+        email: Boolean(data?.external?.email ?? true),
+      };
+    }
+  } catch (err) {
+    console.warn('[Supabase] Não foi possível verificar configurações de autenticação:', err);
+  }
+  return { google: false, email: true };
+}
+
+export interface LocalDiagnosticInfo {
+  isConfigured: boolean;
+  urlConfigured: boolean;
+  maskedUrl: string;
+  keyConfigured: boolean;
+  maskedKey: string;
+  authReachable: boolean;
+  googleOAuthEnabled: boolean;
+  hasActiveSession: boolean;
+  environment: string;
+}
+
+export async function getLocalDiagnostics(): Promise<LocalDiagnosticInfo> {
+  const configured = isSupabaseConfigured();
+  let authReachable = false;
+  let googleOAuthEnabled = false;
+
+  if (configured) {
+    try {
+      const res = await fetch(`${supabaseUrl}/auth/v1/settings`, {
+        headers: { apikey: supabaseKey },
+      });
+      if (res.ok) {
+        authReachable = true;
+        const data = await res.json();
+        googleOAuthEnabled = Boolean(data?.external?.google);
+      }
+    } catch {
+      authReachable = false;
+    }
+  }
+
+  let hasActiveSession = false;
+  try {
+    const client = getSupabaseClient();
+    if (client) {
+      const { data } = await client.auth.getSession();
+      hasActiveSession = Boolean(data?.session);
+    }
+  } catch {
+    hasActiveSession = false;
+  }
+
+  const maskedUrl = supabaseUrl
+    ? `${supabaseUrl.slice(0, 18)}...${supabaseUrl.slice(-12)}`
+    : 'Não configurada';
+
+  const maskedKey = supabaseKey
+    ? `${supabaseKey.slice(0, 12)}...${supabaseKey.slice(-6)}`
+    : 'Não configurada';
+
+  return {
+    isConfigured: configured,
+    urlConfigured: Boolean(supabaseUrl && isValidUrl(supabaseUrl)),
+    maskedUrl,
+    keyConfigured: Boolean(supabaseKey && supabaseKey.length > 10),
+    maskedKey,
+    authReachable,
+    googleOAuthEnabled,
+    hasActiveSession,
+    environment: typeof import.meta !== 'undefined' && import.meta.env?.MODE ? import.meta.env.MODE : 'development',
+  };
+}
 
 let clientInstance: SupabaseClient<Database> | null = null;
 
@@ -64,6 +170,7 @@ export const getSupabaseClient = (): SupabaseClient<Database> | null => {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
+        detectSessionInUrl: true,
       },
     });
   }
@@ -76,6 +183,9 @@ export const supabase = getSupabaseClient();
 export type SupabaseConnectionStatus = 'connected' | 'schema_pending' | 'schema_incomplete' | 'error' | 'demo';
 
 export const EXPECTED_SCHEMA_TABLES = [
+  'workspaces',
+  'workspace_members',
+  'app_users',
   'profiles',
   'conversations',
   'messages',
@@ -87,6 +197,7 @@ export const EXPECTED_SCHEMA_TABLES = [
   'contact_tags',
   'contact_tag_assignments',
   'contact_notes',
+  'automation_jobs',
 ] as const;
 
 export type ExpectedTableName = typeof EXPECTED_SCHEMA_TABLES[number];
