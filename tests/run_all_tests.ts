@@ -14,6 +14,7 @@ const testSuites = [
   { name: 'Realtime Inbox Subscriptions', file: 'tests/realtime_inbox_test.ts' },
   { name: 'Instagram OAuth Flow & Top-Level Navigation', file: 'tests/instagram_oauth_flow_test.ts' },
   { name: 'Channel Connections Multitenant Persistence', file: 'tests/channel_connections_multitenant_persistence_test.ts' },
+  { name: 'Meta Webhook Secret Fingerprint Diagnostic', file: 'tests/meta_webhook_diagnostic_test.ts' },
 ];
 
 console.log('\n======================================================================');

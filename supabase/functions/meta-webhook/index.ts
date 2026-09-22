@@ -53,6 +53,21 @@ async function verifyMetaSignature(
   }
 }
 
+/**
+ * Computes a 16-character hexadecimal SHA-256 fingerprint of the provided secret.
+ * Used exclusively for safe runtime diagnostics.
+ * NEVER logs, exposes or transmits the plaintext secret or full hash.
+ */
+async function getSecretFingerprint(secret: string): Promise<string> {
+  const bytes = new TextEncoder().encode(secret);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 16);
+}
+
 serve(async (req: Request) => {
   const startTime = Date.now();
 
@@ -64,6 +79,36 @@ serve(async (req: Request) => {
 
   // 2. Meta Webhook Verification Handshake (GET)
   if (req.method === "GET") {
+    // 2.0 Temporary Runtime Diagnostic: Secret Fingerprint
+    if (url.searchParams.get("diagnostic") === "secret-fingerprint") {
+      const currentSecret = Deno.env.get("META_APP_SECRET");
+      if (!currentSecret) {
+        return new Response(
+          JSON.stringify({
+            diagnostic: "secret-fingerprint",
+            configured: false,
+          }),
+          {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      const fingerprintPrefix = await getSecretFingerprint(currentSecret);
+      return new Response(
+        JSON.stringify({
+          diagnostic: "secret-fingerprint",
+          configured: true,
+          fingerprint_prefix: fingerprintPrefix,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
     const mode = url.searchParams.get("hub.mode");
     const token = url.searchParams.get("hub.verify_token");
     const challenge = url.searchParams.get("hub.challenge");
